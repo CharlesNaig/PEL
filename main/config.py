@@ -50,7 +50,7 @@ SMS_TEMPLATE = (
 # ==============================================================
 
 PIN_GREEN_LED = 17      # Green LED anode (via 220-330 ohm resistor)
-PIN_RED_LED   = 27      # Red LED anode (via 220-330 ohm resistor)
+PIN_RED_LED   = 23      # Red LED anode (via 220-330 ohm resistor)
 PIN_RELAY     = 18      # Relay module IN pin (Active LOW — buzzer)
 PIN_BUTTON    = 22      # Push button (internal pull-up, press = LOW)
 
