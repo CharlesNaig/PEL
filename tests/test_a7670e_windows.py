@@ -302,14 +302,19 @@ def send_sms(ser):
 
     print()
 
-    # Step 1: Set text mode and drain everything
-    ser.reset_input_buffer()
-    ser.write(b"AT+CMGF=1\r\n")
-    ser.flush()
-    time.sleep(1)
-    while ser.in_waiting:
-        ser.read(ser.in_waiting)
-        time.sleep(0.1)
+    # Step 1: Set text mode + GSM charset + text params and verify
+    resp_cmgf = send_at(ser, "AT+CMGF=1", wait=1, show=True)
+    if "OK" not in resp_cmgf:
+        print(coloured("  ✗ AT+CMGF=1 failed — cannot set text mode", RED))
+        return
+
+    resp_cscs = send_at(ser, 'AT+CSCS="GSM"', wait=1, show=True)
+    if "OK" not in resp_cscs:
+        print(coloured("  ⚠ AT+CSCS=\"GSM\" failed — trying anyway", YELLOW))
+
+    resp_csmp = send_at(ser, "AT+CSMP=17,167,0,0", wait=1, show=True)
+    if "OK" not in resp_csmp:
+        print(coloured("  ⚠ AT+CSMP failed — trying anyway", YELLOW))
 
     # Step 2: Send AT+CMGS="number"\r
     cmd = f'AT+CMGS="{number}"\r'

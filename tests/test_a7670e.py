@@ -527,13 +527,21 @@ def send_sms_interactive(modem):
     ser = modem.ser
     ser.reset_input_buffer()
 
-    # Set text mode
+    # Set text mode + GSM charset + text parameters (all required for CMGS)
     ser.write(b"AT+CMGF=1\r\n")
     time.sleep(1)
     ser.read(ser.in_waiting or 256)
 
-    # Send CMGS command
-    cmd = f'AT+CMGS="{number}"\r\n'
+    ser.write(b'AT+CSCS="GSM"\r\n')
+    time.sleep(0.5)
+    ser.read(ser.in_waiting or 256)
+
+    ser.write(b"AT+CSMP=17,167,0,0\r\n")
+    time.sleep(0.5)
+    ser.read(ser.in_waiting or 256)
+
+    # Send CMGS command (use \r only, not \r\n — matches working Windows script)
+    cmd = f'AT+CMGS="{number}"\r'
     ser.write(cmd.encode())
 
     # Wait for > prompt (up to 5 seconds)
@@ -768,13 +776,16 @@ def run_all_tests(mode="usb", port_override=None, go_interactive=False):
     print(f"  Port: {port}")
     print(f"  Baud: {use_baud}")
 
-    use_pwrkey = (mode == "gpio")
+    # NOTE: Do NOT pass pwrkey_pin here. In GPIO mode the preflight already
+    # pulsed PWRKEY once to power on the module.  A7670E PWRKEY is a *toggle*
+    # — a second pulse from the constructor would turn it right back OFF.
+    # In USB mode PWRKEY is not used at all.
     modem = A7670E(
         port=port,
         baud=use_baud,
         fallback_baud=config.SERIAL_FALLBACK_BAUD,
         timeout=config.SERIAL_TIMEOUT,
-        pwrkey_pin=config.PIN_PWRKEY if use_pwrkey else None,
+        pwrkey_pin=None,
     )
 
     if not modem.is_connected:

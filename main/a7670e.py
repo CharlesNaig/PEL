@@ -589,14 +589,16 @@ class A7670E:
         """
         for attempt in range(retries):
             try:
-                # Set SMS text mode
+                # Set SMS text mode + GSM charset + text params
                 self.send_command("AT+CMGF=1", timeout=1.0)
+                self.send_command('AT+CSCS="GSM"', timeout=1.0)
+                self.send_command("AT+CSMP=17,167,0,0", timeout=1.0)
                 time.sleep(0.3)
 
                 # Set recipient
                 self._flush()
                 cmd = f'AT+CMGS="{number}"'
-                self.ser.write((cmd + "\r\n").encode("ascii"))
+                self.ser.write((cmd + "\r").encode("ascii"))
                 time.sleep(0.5)
 
                 # Wait for '>' prompt
