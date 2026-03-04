@@ -12,7 +12,7 @@ Calling any blink function stops the previous pattern first.
 import RPi.GPIO as GPIO
 import threading
 import time
-from config import PIN_LED_GREEN, PIN_LED_RED
+from config import PIN_GREEN_LED, PIN_RED_LED
 
 
 # ── Internal state ──────────────────────────────────────────────────────────
@@ -28,27 +28,27 @@ def setup():
     Initialize both LED pins as outputs, all OFF.
     Call once during system startup.
     """
-    GPIO.setup(PIN_LED_GREEN, GPIO.OUT)
-    GPIO.setup(PIN_LED_RED, GPIO.OUT)
+    GPIO.setup(PIN_GREEN_LED, GPIO.OUT)
+    GPIO.setup(PIN_RED_LED, GPIO.OUT)
     all_off()
 
 
 # ── Direct control ──────────────────────────────────────────────────────────
 
 def green_on():
-    GPIO.output(PIN_LED_GREEN, GPIO.HIGH)
+    GPIO.output(PIN_GREEN_LED, GPIO.HIGH)
 
 
 def green_off():
-    GPIO.output(PIN_LED_GREEN, GPIO.LOW)
+    GPIO.output(PIN_GREEN_LED, GPIO.LOW)
 
 
 def red_on():
-    GPIO.output(PIN_LED_RED, GPIO.HIGH)
+    GPIO.output(PIN_RED_LED, GPIO.HIGH)
 
 
 def red_off():
-    GPIO.output(PIN_LED_RED, GPIO.LOW)
+    GPIO.output(PIN_RED_LED, GPIO.LOW)
 
 
 def all_off():
@@ -114,7 +114,7 @@ def blink_red(interval=0.2):
     Used during ARM phase countdown (Phase 1) and error states.
     Default 200ms matches main.ino BLINK_FAST pattern.
     """
-    _start_blink(PIN_LED_RED, interval)
+    _start_blink(PIN_RED_LED, interval)
 
 
 def blink_green(interval=0.5):
@@ -122,7 +122,7 @@ def blink_green(interval=0.5):
     Non-blocking green LED blink — slow.
     Used during GPS acquisition (Phase 2: 500ms).
     """
-    _start_blink(PIN_LED_GREEN, interval)
+    _start_blink(PIN_GREEN_LED, interval)
 
 
 def blink_green_fast(interval=0.3):
@@ -130,7 +130,7 @@ def blink_green_fast(interval=0.3):
     Non-blocking green LED blink — fast.
     Used during SMS sending (Phase 3: 300ms).
     """
-    _start_blink(PIN_LED_GREEN, interval)
+    _start_blink(PIN_GREEN_LED, interval)
 
 
 def blink_both(interval=0.3):
@@ -144,15 +144,15 @@ def blink_both(interval=0.3):
         toggle = False
         while not _blink_stop.is_set():
             if toggle:
-                GPIO.output(PIN_LED_GREEN, GPIO.HIGH)
-                GPIO.output(PIN_LED_RED, GPIO.LOW)
+                GPIO.output(PIN_GREEN_LED, GPIO.HIGH)
+                GPIO.output(PIN_RED_LED, GPIO.LOW)
             else:
-                GPIO.output(PIN_LED_GREEN, GPIO.LOW)
-                GPIO.output(PIN_LED_RED, GPIO.HIGH)
+                GPIO.output(PIN_GREEN_LED, GPIO.LOW)
+                GPIO.output(PIN_RED_LED, GPIO.HIGH)
             toggle = not toggle
             _blink_stop.wait(interval)
-        GPIO.output(PIN_LED_GREEN, GPIO.LOW)
-        GPIO.output(PIN_LED_RED, GPIO.LOW)
+        GPIO.output(PIN_GREEN_LED, GPIO.LOW)
+        GPIO.output(PIN_RED_LED, GPIO.LOW)
 
     global _blink_thread
     with _lock:
