@@ -56,10 +56,18 @@ PIN_BUTTON    = 22      # Push button (internal pull-up, press = LOW)
 PIN_PWRKEY    = 4       # A7670E PWRKEY pin (pulse LOW 1.5s to power on)
 
 # ==============================================================
-# A7670E UART CONFIGURATION
+# A7670E SERIAL CONFIGURATION
+# ==============================================================
+# Connection method: "usb" or "gpio"
+#   usb  — A7670E micro-USB cable to Pi USB port (recommended)
+#          Creates /dev/ttyUSB0..3 — AT port is auto-detected.
+#   gpio — A7670E TX/RX wired to Pi GPIO 14/15 (UART)
+#          Uses /dev/serial0.
 # ==============================================================
 
-SERIAL_PORT    = "/dev/serial0"   # Hardware UART on Pi GPIO 14/15
+SERIAL_MODE    = "usb"            # "usb" (recommended) or "gpio"
+SERIAL_PORT    = "auto"           # "auto" to detect, or explicit path
+                                  # e.g. "/dev/ttyUSB2", "/dev/serial0"
 SERIAL_BAUD    = 115200           # Primary baud rate
 SERIAL_FALLBACK_BAUD = 9600      # Fallback if 115200 fails
 SERIAL_TIMEOUT = 1.0              # Serial read timeout (seconds)

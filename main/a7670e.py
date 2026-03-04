@@ -4,6 +4,10 @@ A7670E LTE Cat-1 Module Driver — SMS + GNSS
 Handles all communication with the SIMCOM A7670E via UART AT commands.
 Replaces both SIM800L (GSM) and GTU-7 (GPS) from the Arduino version.
 
+Supports two connection methods:
+  - USB: A7670E micro-USB → Pi USB port (auto-detects AT port)
+  - GPIO UART: A7670E TX/RX → Pi GPIO 14/15
+
 Port of:
   - initGSM(), sendSMS(), waitForResponse() from main.ino (lines 474-594)
   - acquireGPS(), buildMapLink() from main.ino (lines 400-468)
@@ -13,12 +17,69 @@ Dependencies: pyserial
 """
 
 import serial
+import serial.tools.list_ports
 import time
+import glob
 
 try:
     import RPi.GPIO as GPIO
 except ImportError:
     GPIO = None
+
+
+def find_usb_at_port():
+    """
+    Auto-detect the A7670E AT command port when connected via USB.
+
+    On Linux (Pi), SIMCOM A7670E creates four /dev/ttyUSB* ports:
+      ttyUSB0 = Diag, ttyUSB1 = NMEA/GPS, ttyUSB2 = AT, ttyUSB3 = Modem
+    The AT port is typically index 2 (third port).
+
+    Falls back to probing each port with 'AT' if the index guess fails.
+    Returns the port path string, or None if not found.
+    """
+    # Method 1: Look for SIMCOM by USB VID (0x1E0E)
+    simcom_ports = []
+    for p in serial.tools.list_ports.comports():
+        if p.vid == 0x1E0E:
+            simcom_ports.append(p.device)
+    simcom_ports.sort()
+
+    if simcom_ports:
+        print(f"[A7670E] Found SIMCOM USB ports: {simcom_ports}")
+        # AT port is typically the 3rd one (index 2)
+        if len(simcom_ports) >= 3:
+            at_candidate = simcom_ports[2]
+            print(f"[A7670E] Trying AT port candidate: {at_candidate}")
+            return at_candidate
+        # If fewer ports, try the last one
+        return simcom_ports[-1]
+
+    # Method 2: Check for /dev/ttyUSB* ports generically
+    usb_ports = sorted(glob.glob("/dev/ttyUSB*"))
+    if usb_ports:
+        print(f"[A7670E] Found USB serial ports: {usb_ports}")
+        # Probe each port for AT response
+        for port_path in usb_ports:
+            try:
+                test_ser = serial.Serial(port_path, 115200, timeout=1)
+                test_ser.reset_input_buffer()
+                test_ser.write(b"AT\r\n")
+                time.sleep(0.5)
+                resp = test_ser.read(test_ser.in_waiting or 64).decode(errors="replace")
+                test_ser.close()
+                if "OK" in resp:
+                    print(f"[A7670E] AT responded on {port_path}")
+                    return port_path
+            except (serial.SerialException, OSError):
+                continue
+        # If probe fails, try the 3rd port (common AT index)
+        if len(usb_ports) >= 3:
+            return usb_ports[2]
+        return usb_ports[0]
+
+    print("[A7670E] No USB serial ports found. Is the module plugged in?")
+    return None
 
 
 class A7670E:

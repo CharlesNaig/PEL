@@ -45,21 +45,43 @@ def setup():
     print()
     print("Modem: ", end="")
 
-    modem = A7670E(
-        port=config.SERIAL_PORT,
-        baud=config.SERIAL_BAUD,
-        fallback_baud=config.SERIAL_FALLBACK_BAUD,
-        timeout=config.SERIAL_TIMEOUT,
-        pwrkey_pin=config.PIN_PWRKEY,
-    )
+    # Determine serial port based on connection mode
+    port = config.SERIAL_PORT
+    if config.SERIAL_MODE == "usb" and port == "auto":
+        from a7670e import find_usb_at_port
+        detected = find_usb_at_port()
+        if detected:
+            port = detected
+        else:
+            print("NOT FOUND — no USB serial port detected")
+            port = None
+    elif port == "auto":
+        # GPIO mode fallback
+        port = "/dev/serial0"
 
-    if modem.is_connected:
+    # For USB mode, PWRKEY control is not needed (module powers via USB)
+    pwrkey = config.PIN_PWRKEY if config.SERIAL_MODE == "gpio" else None
+
+    if port is None:
+        modem = None
+    else:
+        modem = A7670E(
+            port=port,
+            baud=config.SERIAL_BAUD,
+            fallback_baud=config.SERIAL_FALLBACK_BAUD,
+            timeout=config.SERIAL_TIMEOUT,
+            pwrkey_pin=pwrkey,
+        )
+
+    if modem and modem.is_connected:
         if modem.init_module():
             print("Modem: OK")
         else:
             print("Modem: WARNING — check SIM / signal")
-    else:
+    elif modem:
         print("Modem: NOT CONNECTED — check wiring")
+    else:
+        print("Modem: NOT FOUND — check USB cable or port config")
 
     print("---------------------------------")
     print(f"Owner:    {config.OWNER_NAME}")
