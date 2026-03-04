@@ -499,43 +499,71 @@ def check_serial_loopback():
             print(f"  No boot messages received.\n")
 
         # --- Step C: Send AT multiple times with delays ---
-        print(f"  {BOLD}Sending AT command (10 attempts, 1s apart):{RESET}\n")
+        # Try both CR-only and CR+LF, with explicit flush
+        at_variants = [
+            (b"AT\r",   "AT\\r"),
+            (b"AT\r\n", "AT\\r\\n"),
+        ]
+        print(f"  {BOLD}Sending AT command (5 attempts x 2 formats, 1s apart):{RESET}\n")
 
         got_ok = False
         all_responses = []
+        attempt_num = 0
 
-        for attempt in range(1, 11):
-            ser.reset_input_buffer()
-            ser.write(b"AT\r\n")
-            time.sleep(1.0)
+        for at_cmd, at_label in at_variants:
+            if got_ok:
+                break
+            for _ in range(5):
+                attempt_num += 1
+                ser.reset_input_buffer()
+                written = ser.write(at_cmd)
+                ser.flush()                          # <-- force bytes out
+                time.sleep(1.0)
 
-            data = ser.read(ser.in_waiting or 256)
-            if data:
-                text = data.decode("ascii", errors="replace").strip()
-                hex_preview = " ".join(f"{b:02X}" for b in data[:24])
+                data = ser.read(ser.in_waiting or 256)
+                if data:
+                    text = data.decode("ascii", errors="replace").strip()
+                    hex_preview = " ".join(f"{b:02X}" for b in data[:24])
 
-                if "OK" in text:
-                    print(f"  Attempt {attempt:>2}: {GREEN}'OK' received!{RESET}")
-                    print(f"              Hex: {hex_preview}")
-                    got_ok = True
-                    all_responses.append(("OK", text))
-                    break
+                    if "OK" in text:
+                        print(f"  #{attempt_num:>2} [{at_label:8s}]: {GREEN}'OK' received!{RESET}")
+                        print(f"       Hex: {hex_preview}")
+                        got_ok = True
+                        all_responses.append(("OK", text))
+                        break
+                    else:
+                        clean = text.replace("\r", "\\r").replace("\n", "\\n")[:60]
+                        print(f"  #{attempt_num:>2} [{at_label:8s}]: got data -> {YELLOW}{clean}{RESET}")
+                        print(f"       Hex: {hex_preview}")
+                        all_responses.append(("DATA", text))
                 else:
-                    clean = text.replace("\r", "\\r").replace("\n", "\\n")[:60]
-                    print(f"  Attempt {attempt:>2}: got data -> {YELLOW}{clean}{RESET}")
-                    print(f"              Hex: {hex_preview}")
-                    all_responses.append(("DATA", text))
-            else:
-                print(f"  Attempt {attempt:>2}: {RED}no response{RESET}")
-                all_responses.append(("NONE", ""))
+                    print(f"  #{attempt_num:>2} [{at_label:8s}]: {RED}no response{RESET}")
+                    all_responses.append(("NONE", ""))
+
+        # --- Step D: Echo test - write raw bytes and report count ---
+        if not got_ok:
+            print(f"\n  {BOLD}Verifying Pi TX line sends bytes:{RESET}")
+            ser.reset_input_buffer()
+            n = ser.write(b"AAAAA")
+            ser.flush()
+            print(f"    ser.write(b'AAAAA') returned {n} bytes written")
+            # Check if OS-level UART is actually configured for output
+            try:
+                result = subprocess.run(
+                    ["pinctrl", "get", "14"],
+                    capture_output=True, text=True, timeout=3
+                )
+                pin14_state = result.stdout.strip()
+                print(f"    GPIO 14 state right now: {pin14_state}")
+            except Exception:
+                pass
 
         ser.close()
         print()
 
-        # --- Step D: Diagnosis ---
+        # --- Step E: Diagnosis ---
         divider()
         has_data = any(r[0] in ("OK", "DATA") for r in all_responses)
-        has_none = any(r[0] == "NONE" for r in all_responses)
 
         if got_ok:
             print(f"\n  Result: {PASS} - Module responds to AT commands!")
@@ -546,11 +574,25 @@ def check_serial_loopback():
             print(f"  {BOLD}Diagnosis: Pi TX -> Module RX path is broken.{RESET}")
             print(f"  The module sends data (URCs, boot messages) to the Pi,")
             print(f"  but never receives your AT commands.\n")
-            print(f"  {BOLD}Check these:{RESET}")
-            print(f"    1. A7670E 'R' (RX) wire MUST go to Pi Pin 8 (GPIO 14 / TXD)")
-            print(f"    2. Verify the wire has good contact (push it in firmly)")
-            print(f"    3. Try a different jumper wire for the RX connection")
-            print(f"    4. Check for bent/broken pin on the A7670E breakout board")
+            print()
+            print(f"  {BOLD}>>> TRY THIS FIRST: SWAP R AND T WIRES <<<{RESET}")
+            print()
+            print(f"  Some A7670E breakout boards label pins from the HOST")
+            print(f"  perspective instead of the module perspective:")
+            print(f"    R = 'you Receive from me'  = module TX output")
+            print(f"    T = 'you Transmit to me'   = module RX input")
+            print()
+            print(f"  If that's your board, the correct wiring is:")
+            print(f"    {BOLD}T{RESET} (module RX) -> Pi Pin 8  (GPIO 14 / TXD)")
+            print(f"    {BOLD}R{RESET} (module TX) -> Pi Pin 10 (GPIO 15 / RXD)")
+            print()
+            print(f"  {BOLD}Power off, swap R<->T wires, power on, run again.{RESET}")
+            print()
+            print(f"  If swapping doesn't help, also check:")
+            print(f"    1. Voltage levels - A7670E uses 1.8V UART; some boards")
+            print(f"       need a level shifter to talk to 3.3V Pi GPIO")
+            print(f"    2. Damaged RX trace on breakout board")
+            print(f"    3. Try connecting at 9600 baud (some modules default to it)")
 
         else:
             print(f"\n  Result: {FAIL} - No data received at all")
@@ -559,6 +601,7 @@ def check_serial_loopback():
             print(f"    1. VCC: Is the module getting 5V power?")
             print(f"    2. GND: Is ground connected between module and Pi?")
             print(f"    3. T (TX) wire must go to Pi Pin 10 (GPIO 15 / RXD)")
+            print(f"       (or R if your board labels from host perspective)")
             print(f"    4. PWRKEY: Is K wire connected to Pi Pin 7 (GPIO 4)?")
             print(f"    5. Try unplugging VCC, wait 5s, replug and run again")
 
