@@ -454,8 +454,12 @@ def check_serial_loopback():
         print(f"  {WARN} pyserial not installed - skipping")
         return
 
-    # --- Step A: Pulse PWRKEY to ensure module is on ---
-    print(f"  Pulsing PWRKEY (GPIO 4) to power on module...")
+    # --- Step A: PWRKEY handling ---
+    # BK-A7670 board has R104 shorting PWRKEY to GND, so the module
+    # auto-powers-on when VCC is applied. We still pulse GPIO 4 in case
+    # the module was previously powered down via software (AT+CPOF).
+    print(f"  Note: BK-A7670 auto-boots (PWRKEY shorted to GND via R104)")
+    print(f"  Pulsing PWRKEY (GPIO 4) anyway in case module was shut down...")
     try:
         import RPi.GPIO as GPIO
         GPIO.setwarnings(False)
@@ -470,14 +474,24 @@ def check_serial_loopback():
         _t.sleep(5.0)
     except Exception as e:
         print(f"  {WARN} PWRKEY pulse failed: {e}")
-        print(f"  Continuing without PWRKEY...\n")
+        print(f"  Module should still auto-boot via R104. Waiting 5s...\n")
+        time.sleep(5.0)
 
     # --- Step B: Drain any boot URCs and display them ---
     print(f"  Port: {port}")
     print(f"  Draining boot messages first...\n")
 
     try:
-        ser = pyserial.Serial(port, 115200, timeout=1)
+        ser = pyserial.Serial(
+            port, 115200, timeout=1,
+            xonxoff=False,          # no software flow control
+            rtscts=False,           # no hardware flow control
+            dsrdtr=False,           # no DSR/DTR flow control
+        )
+
+        # Report serial port settings
+        print(f"  Serial config: {ser.baudrate} 8N1, flow ctrl: OFF")
+        print(f"  RTS={ser.rts}, DTR={ser.dtr}\n")
 
         # Read any URCs the module sent during boot
         boot_data = b""
@@ -572,27 +586,23 @@ def check_serial_loopback():
             print(f"\n  Result: {WARN} - Module TX works but does NOT reply to AT")
             print()
             print(f"  {BOLD}Diagnosis: Pi TX -> Module RX path is broken.{RESET}")
-            print(f"  The module sends data (URCs, boot messages) to the Pi,")
-            print(f"  but never receives your AT commands.\n")
+            print(f"  The module boots and sends URCs (TX works) but never")
+            print(f"  responds to AT commands (RX doesn't receive).\n")
+            print(f"  Per BK-A7670 manual: T=TXD(output), R=RXD(input), 3.3V TTL")
             print()
-            print(f"  {BOLD}>>> TRY THIS FIRST: SWAP R AND T WIRES <<<{RESET}")
-            print()
-            print(f"  Some A7670E breakout boards label pins from the HOST")
-            print(f"  perspective instead of the module perspective:")
-            print(f"    R = 'you Receive from me'  = module TX output")
-            print(f"    T = 'you Transmit to me'   = module RX input")
-            print()
-            print(f"  If that's your board, the correct wiring is:")
-            print(f"    {BOLD}T{RESET} (module RX) -> Pi Pin 8  (GPIO 14 / TXD)")
-            print(f"    {BOLD}R{RESET} (module TX) -> Pi Pin 10 (GPIO 15 / RXD)")
-            print()
-            print(f"  {BOLD}Power off, swap R<->T wires, power on, run again.{RESET}")
-            print()
-            print(f"  If swapping doesn't help, also check:")
-            print(f"    1. Voltage levels - A7670E uses 1.8V UART; some boards")
-            print(f"       need a level shifter to talk to 3.3V Pi GPIO")
-            print(f"    2. Damaged RX trace on breakout board")
-            print(f"    3. Try connecting at 9600 baud (some modules default to it)")
+            print(f"  {BOLD}Troubleshooting steps:{RESET}")
+            print(f"    1. Confirm wiring:  R -> Pi Pin 8 (GPIO14/TXD)")
+            print(f"                        T -> Pi Pin 10 (GPIO15/RXD)")
+            print(f"    2. Pull out and reseat the R jumper wire on both ends")
+            print(f"    3. Try a brand new jumper wire for R")
+            print(f"    4. Inspect the R pad on the breakout - use multimeter")
+            print(f"       to check continuity from R header to A7670E pin 34")
+            print(f"    5. Test via USB instead: remove UART wires, connect")
+            print(f"       micro-USB, use: screen /dev/ttyUSB2 115200")
+            print(f"       If AT works over USB, the RX trace is damaged")
+            print(f"    6. Try loopback: disconnect from Pi, bridge T<->R on")
+            print(f"       the module header. Connect Pi TXD+RXD to each other.")
+            print(f"       If Pi sees its own AT echo, Pi UART is good.")
 
         else:
             print(f"\n  Result: {FAIL} - No data received at all")
@@ -677,11 +687,12 @@ def print_summary(boot_files):
     else:
         print(f"  {GREEN}{BOLD}All system checks passed!{RESET}")
         print()
-        print(f"  If A7670E still doesn't respond, the issue is likely:")
-        print(f"    1. TX/RX wires swapped")
-        print(f"    2. Module not powered (check VCC + PWRKEY)")
-        print(f"    3. Module needs more boot time after PWRKEY pulse")
-        print(f"    4. Faulty module or broken wire")
+        print(f"  If A7670E still doesn't respond to AT commands:")
+        print(f"    1. Wiring: R -> Pi Pin 8 (TXD), T -> Pi Pin 10 (RXD)")
+        print(f"    2. Test via USB (section 5 of BK-A7670 manual)")
+        print(f"    3. Pi loopback: bridge Pin 8 <-> Pin 10, send AT")
+        print(f"    4. Check R pad continuity with multimeter")
+        print(f"    5. BK-A7670 auto-boots (R104 on PWRKEY) — no need to pulse K")
 
 
 # =============================================================================

@@ -57,7 +57,10 @@ class A7670E:
         # Try primary baud
         print(f"[A7670E] Opening {port} at {baud} baud...")
         try:
-            self.ser = serial.Serial(port, baud, timeout=timeout)
+            self.ser = serial.Serial(
+                port, baud, timeout=timeout,
+                xonxoff=False, rtscts=False, dsrdtr=False,
+            )
             time.sleep(0.5)
             self._flush()
 
@@ -73,7 +76,10 @@ class A7670E:
         try:
             if self.ser and self.ser.is_open:
                 self.ser.close()
-            self.ser = serial.Serial(port, fallback_baud, timeout=timeout)
+            self.ser = serial.Serial(
+                port, fallback_baud, timeout=timeout,
+                xonxoff=False, rtscts=False, dsrdtr=False,
+            )
             time.sleep(0.5)
             self._flush()
 
