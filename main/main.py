@@ -50,6 +50,7 @@ def setup():
         baud=config.SERIAL_BAUD,
         fallback_baud=config.SERIAL_FALLBACK_BAUD,
         timeout=config.SERIAL_TIMEOUT,
+        pwrkey_pin=config.PIN_PWRKEY,
     )
 
     if modem.is_connected:

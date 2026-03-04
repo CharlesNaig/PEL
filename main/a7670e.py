@@ -15,6 +15,11 @@ Dependencies: pyserial
 import serial
 import time
 
+try:
+    import RPi.GPIO as GPIO
+except ImportError:
+    GPIO = None
+
 
 class A7670E:
     """
@@ -22,9 +27,12 @@ class A7670E:
     Handles: module init, GNSS (GPS), and SMS over a single UART.
     """
 
-    def __init__(self, port, baud, fallback_baud=9600, timeout=1.0):
+    def __init__(self, port, baud, fallback_baud=9600, timeout=1.0,
+                 pwrkey_pin=None):
         """
         Open serial connection to A7670E.
+        If pwrkey_pin is provided, pulses PWRKEY LOW for 1.5 s to ensure the
+        module is powered on before attempting serial communication.
         Tries primary baud rate first, falls back if no response.
 
         Port of: baud detection in test_a7670e.ino setup()
@@ -34,11 +42,17 @@ class A7670E:
             baud: Primary baud rate (e.g. 115200)
             fallback_baud: Fallback baud rate (e.g. 9600)
             timeout: Serial read timeout in seconds
+            pwrkey_pin: BCM GPIO pin connected to A7670E PWRKEY (None to skip)
         """
         self.port = port
         self.timeout = timeout
         self.ser = None
         self._connected = False
+        self._pwrkey_pin = pwrkey_pin
+
+        # Pulse PWRKEY to power on the module
+        if pwrkey_pin is not None:
+            self._pwrkey_pulse(pwrkey_pin)
 
         # Try primary baud
         print(f"[A7670E] Opening {port} at {baud} baud...")
@@ -104,6 +118,27 @@ class A7670E:
             return "OK" in response
         except Exception:
             return False
+
+    @staticmethod
+    def _pwrkey_pulse(pin):
+        """
+        Pulse PWRKEY LOW for 1.5 s then release HIGH.
+        The A7670E requires this to power on / toggle power state.
+        Waits 3 s after pulse for the module to boot.
+        """
+        if GPIO is None:
+            print("[A7670E] WARNING: RPi.GPIO not available, skipping PWRKEY pulse")
+            return
+        print(f"[A7670E] PWRKEY pulse on GPIO {pin} ...")
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
+        time.sleep(0.1)
+        GPIO.output(pin, GPIO.LOW)
+        time.sleep(1.5)
+        GPIO.output(pin, GPIO.HIGH)
+        print("[A7670E] PWRKEY released — waiting 3 s for boot ...")
+        time.sleep(3.0)
 
     def send_command(self, cmd, timeout=2.0):
         """
