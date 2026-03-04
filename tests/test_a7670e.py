@@ -117,7 +117,7 @@ def preflight_check_serial_port():
         print(f"  {port} ... {FAIL} (does not exist!)")
         print()
         print(f"  {RED}Possible causes:{RESET}")
-        print(f"    -> UART not enabled (check /boot/config.txt)")
+        print(f"    -> UART not enabled (check /boot/firmware/config.txt)")
         print(f"    -> Bluetooth not disabled on Pi 3/4/5")
         print(f"    -> Need reboot after config changes")
         # Check what serial devices exist
@@ -132,6 +132,15 @@ def preflight_check_serial_port():
 
     real_path = os.path.realpath(port)
     print(f"  {port} -> {real_path} ... {PASS}")
+
+    # Warn if pointing to mini UART (ttyS0) instead of PL011 (ttyAMA0)
+    if "ttyS0" in real_path:
+        print(f"  UART type            ... {WARN} (mini UART / ttyS0)")
+        print(f"    Mini UART is unreliable (clock tied to CPU freq).")
+        print(f"    Add 'dtoverlay=disable-bt' to /boot/firmware/config.txt")
+        print(f"    and reboot so serial0 -> ttyAMA0 (PL011).")
+    elif "ttyAMA0" in real_path:
+        print(f"  UART type            ... {PASS} (PL011 / ttyAMA0)")
 
     # Check if we can open it
     try:
