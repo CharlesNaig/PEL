@@ -1,0 +1,5 @@
+# Panic Button Emergency Locator — Raspberry Pi
+# Install with:  pip3 install -r requirements.txt
+
+pyserial>=3.5
+RPi.GPIO>=0.7.0
