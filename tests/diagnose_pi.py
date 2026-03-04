@@ -13,6 +13,7 @@ import os
 import sys
 import subprocess
 import glob
+import time
 
 # -- Colour helpers -----------------------------------------------------------
 GREEN  = "\033[92m"
@@ -453,43 +454,113 @@ def check_serial_loopback():
         print(f"  {WARN} pyserial not installed - skipping")
         return
 
+    # --- Step A: Pulse PWRKEY to ensure module is on ---
+    print(f"  Pulsing PWRKEY (GPIO 4) to power on module...")
+    try:
+        import RPi.GPIO as GPIO
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(4, GPIO.OUT, initial=GPIO.HIGH)
+        import time as _t
+        _t.sleep(0.1)
+        GPIO.output(4, GPIO.LOW)
+        _t.sleep(1.5)
+        GPIO.output(4, GPIO.HIGH)
+        print(f"  PWRKEY pulse done. Waiting 5s for module boot...\n")
+        _t.sleep(5.0)
+    except Exception as e:
+        print(f"  {WARN} PWRKEY pulse failed: {e}")
+        print(f"  Continuing without PWRKEY...\n")
+
+    # --- Step B: Drain any boot URCs and display them ---
     print(f"  Port: {port}")
-    print(f"  Sending 'AT' at 115200 baud...\n")
+    print(f"  Draining boot messages first...\n")
 
     try:
-        ser = pyserial.Serial(port, 115200, timeout=2)
-        ser.reset_input_buffer()
-        ser.write(b"AT\r\n")
-        import time
-        time.sleep(1.0)
+        ser = pyserial.Serial(port, 115200, timeout=1)
 
-        data = ser.read(ser.in_waiting or 256)
-        ser.close()
+        # Read any URCs the module sent during boot
+        boot_data = b""
+        for _ in range(3):
+            chunk = ser.read(ser.in_waiting or 256)
+            if chunk:
+                boot_data += chunk
+            time.sleep(0.5)
 
-        if data:
-            # Show raw hex
-            hex_str = " ".join(f"{b:02X}" for b in data[:32])
-            print(f"  Raw bytes ({len(data)}): {hex_str}")
-
-            # Show decoded
-            text = data.decode("ascii", errors="replace").strip()
-            print(f"  Decoded: '{text}'")
-
-            if "OK" in text:
-                print(f"\n  AT response ... {PASS}")
-            elif text:
-                print(f"\n  AT response ... {WARN} (got data but no 'OK')")
-                print(f"  The module is sending data but not responding to AT.")
-                print(f"  Possible causes:")
-                print(f"    -> Module TX works but RX doesn't (check R wire)")
-                print(f"    -> Module is in data/PPP mode (needs '+++' to exit)")
-                print(f"    -> Module is still booting (wait longer after PWRKEY)")
-            else:
-                print(f"\n  AT response ... {WARN} (only whitespace received)")
+        if boot_data:
+            text = boot_data.decode("ascii", errors="replace").strip()
+            print(f"  {BOLD}Boot URCs received ({len(boot_data)} bytes):{RESET}")
+            for line in text.splitlines():
+                line = line.strip()
+                if line:
+                    print(f"    <- {line}")
+            print()
         else:
-            print(f"  Raw bytes: (none)")
-            print(f"\n  AT response ... {FAIL} (no data at all)")
-            print(f"  Module TX line is not sending anything to Pi RX.")
+            print(f"  No boot messages received.\n")
+
+        # --- Step C: Send AT multiple times with delays ---
+        print(f"  {BOLD}Sending AT command (10 attempts, 1s apart):{RESET}\n")
+
+        got_ok = False
+        all_responses = []
+
+        for attempt in range(1, 11):
+            ser.reset_input_buffer()
+            ser.write(b"AT\r\n")
+            time.sleep(1.0)
+
+            data = ser.read(ser.in_waiting or 256)
+            if data:
+                text = data.decode("ascii", errors="replace").strip()
+                hex_preview = " ".join(f"{b:02X}" for b in data[:24])
+
+                if "OK" in text:
+                    print(f"  Attempt {attempt:>2}: {GREEN}'OK' received!{RESET}")
+                    print(f"              Hex: {hex_preview}")
+                    got_ok = True
+                    all_responses.append(("OK", text))
+                    break
+                else:
+                    clean = text.replace("\r", "\\r").replace("\n", "\\n")[:60]
+                    print(f"  Attempt {attempt:>2}: got data -> {YELLOW}{clean}{RESET}")
+                    print(f"              Hex: {hex_preview}")
+                    all_responses.append(("DATA", text))
+            else:
+                print(f"  Attempt {attempt:>2}: {RED}no response{RESET}")
+                all_responses.append(("NONE", ""))
+
+        ser.close()
+        print()
+
+        # --- Step D: Diagnosis ---
+        divider()
+        has_data = any(r[0] in ("OK", "DATA") for r in all_responses)
+        has_none = any(r[0] == "NONE" for r in all_responses)
+
+        if got_ok:
+            print(f"\n  Result: {PASS} - Module responds to AT commands!")
+
+        elif has_data and not got_ok:
+            print(f"\n  Result: {WARN} - Module TX works but does NOT reply to AT")
+            print()
+            print(f"  {BOLD}Diagnosis: Pi TX -> Module RX path is broken.{RESET}")
+            print(f"  The module sends data (URCs, boot messages) to the Pi,")
+            print(f"  but never receives your AT commands.\n")
+            print(f"  {BOLD}Check these:{RESET}")
+            print(f"    1. A7670E 'R' (RX) wire MUST go to Pi Pin 8 (GPIO 14 / TXD)")
+            print(f"    2. Verify the wire has good contact (push it in firmly)")
+            print(f"    3. Try a different jumper wire for the RX connection")
+            print(f"    4. Check for bent/broken pin on the A7670E breakout board")
+
+        else:
+            print(f"\n  Result: {FAIL} - No data received at all")
+            print()
+            print(f"  {BOLD}Module is completely silent. Check:{RESET}")
+            print(f"    1. VCC: Is the module getting 5V power?")
+            print(f"    2. GND: Is ground connected between module and Pi?")
+            print(f"    3. T (TX) wire must go to Pi Pin 10 (GPIO 15 / RXD)")
+            print(f"    4. PWRKEY: Is K wire connected to Pi Pin 7 (GPIO 4)?")
+            print(f"    5. Try unplugging VCC, wait 5s, replug and run again")
 
     except pyserial.SerialException as e:
         print(f"  {RED}Serial error: {e}{RESET}")
