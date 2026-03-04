@@ -1,5 +1,5 @@
 """
-Panic Button Emergency Locator — Configuration
+Panic Button Emergency Locator - Configuration
 ================================================
 All user-configurable constants in one place.
 Edit this file before deployment to match your hardware and contacts.
@@ -36,12 +36,12 @@ SMS_TEMPLATE = (
     "Hey {contact_name}, I'm letting you know that the emergency "
     "panic button has been pressed by {owner_name}.\n"
     "\n"
-    "I've got her location from the GPS device. "
+    "I've got his/her location from the GPS device. "
     "Here is the Google Maps link:\n"
     "\n"
     "{map_link}\n"
     "\n"
-    "Please respond immediately and check on her safety."
+    "Please respond immediately and check on his/her safety."
 )
 
 # ==============================================================
