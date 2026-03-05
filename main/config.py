@@ -12,7 +12,7 @@ Port of: USER CONFIGURATION, PIN CONFIGURATION, TIMING CONSTANTS
 # OWNER INFORMATION
 # ==============================================================
 
-OWNER_NAME = "Charles"
+OWNER_NAME = "ICTB Group 3"
 
 # ==============================================================
 # EMERGENCY CONTACTS
@@ -23,6 +23,7 @@ OWNER_NAME = "Charles"
 CONTACTS = [
     {"name": "Andrew Felipe", "number": "+639154693904"},
     {"name": "Naig",          "number": "+639391445673"},
+    {"name": "LEE",          "number": "+639456903900"},
 ]
 
 # ==============================================================
