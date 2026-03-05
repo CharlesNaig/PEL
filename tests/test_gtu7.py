@@ -5,7 +5,7 @@ GT-U7 GPS Module — Standalone Test
 Tests the GT-U7 (u-blox NEO-6M) GPS module on GPIO UART.
 
 Wiring:
-  GT-U7 VCC → Pi Pin 1 (3.3V) or Pin 2 (5V)
+  GT-U7 VCC → Pi Pin 1 (3.3V) or Pin 2 (5V) yes
   GT-U7 GND → Pi Pin 6 (GND)
   GT-U7 TX  → Pi Pin 10 (GPIO 15 / RX)
   GT-U7 RX  → Pi Pin 8  (GPIO 14 / TX)  (optional)
