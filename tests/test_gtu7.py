@@ -118,9 +118,9 @@ def main():
 
     print("OK — NMEA data received")
 
-    # Run tests
-    test1_ok = test_raw_nmea(gtu7, duration=10)
-    test2_ok = test_fix_polling(gtu7, duration=30)
+    # Run tests (5 minutes total: 30s NMEA + 270s fix polling)
+    test1_ok = test_raw_nmea(gtu7, duration=30)
+    test2_ok = test_fix_polling(gtu7, duration=270)
 
     # Summary
     print(f"\n{'='*50}")
