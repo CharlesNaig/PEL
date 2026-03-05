@@ -97,6 +97,8 @@ LOG_FILE = "logs.txt"       # Log file path (relative to working dir)
 # RELAY LOGIC
 # Set to True if your relay activates on LOW signal (most common).
 # Set to False if your relay activates on HIGH signal.
+# NOTE: If your buzzer is on the NC (Normally Closed) terminal,
+#       flip this setting so "off" energizes the relay (opening NC).
 # ==============================================================
 
-RELAY_ACTIVE_LOW = True
+RELAY_ACTIVE_LOW = False
