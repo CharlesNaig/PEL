@@ -71,6 +71,22 @@ SERIAL_FALLBACK_BAUD = 9600      # Fallback if 115200 fails
 SERIAL_TIMEOUT = 1.0              # Serial read timeout (seconds)
 
 # ==============================================================
+# GT-U7 GPS MODULE (Backup GPS)
+# ==============================================================
+# Connected via GPIO UART: GT-U7 TX → Pi GPIO 15 (RX)
+#                          GT-U7 RX → Pi GPIO 14 (TX)  (optional)
+#                          GT-U7 GND → Pi GND
+#                          GT-U7 VCC → Pi 3.3V or 5V
+# NOTE: Requires enable_uart=1 and dtoverlay=disable-bt in
+#       /boot/firmware/config.txt. Reboot after changes.
+# ==============================================================
+
+GTU7_ENABLED      = True              # Set False to disable backup GPS
+GTU7_PORT         = "/dev/serial0"    # GPIO UART port
+GTU7_BAUD         = 9600              # GT-U7 default baud rate
+GTU7_TIMEOUT      = 1.0              # Serial read timeout (seconds)
+
+# ==============================================================
 # TIMING CONSTANTS
 # ==============================================================
 

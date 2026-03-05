@@ -517,13 +517,13 @@ class A7670E:
 
     def enable_gnss(self):
         """
-        Power on GNSS engine: AT+CGNSPWR=1
+        Power on GNSS engine: AT+CGNSSPWR=1
         Maps to: Test 7 in test_a7670e.ino
 
         Returns:
             True if GNSS powered on successfully
         """
-        resp = self.send_command("AT+CGNSPWR=1", timeout=2.0)
+        resp = self.send_command("AT+CGNSSPWR=1", timeout=2.0)
         success = "OK" in resp
         if success:
             print("[A7670E] GNSS engine powered on")
@@ -533,7 +533,7 @@ class A7670E:
 
     def disable_gnss(self):
         """Power off GNSS engine to save power."""
-        resp = self.send_command("AT+CGNSPWR=0", timeout=2.0)
+        resp = self.send_command("AT+CGNSSPWR=0", timeout=2.0)
         return "OK" in resp
 
     def acquire_gps(self, timeout=30, poll_interval=5, progress_callback=None):
@@ -562,7 +562,7 @@ class A7670E:
 
             print(f"  GPS poll #{poll_count}  ({remaining:.0f}s remaining)")
 
-            resp = self.send_command("AT+CGNSINF", timeout=2.0)
+            resp = self.send_command("AT+CGNSSINFO", timeout=2.0)
             fix_status, lat, lng, utc_time = self.parse_gnss_response(resp)
 
             if fix_status == 1 and lat is not None and lng is not None:
@@ -585,10 +585,15 @@ class A7670E:
 
     def parse_gnss_response(self, response):
         """
-        Parse +CGNSINF response into components.
-        Port of: parseGNSSInfo() in test_a7670e.ino
+        Parse +CGNSSINFO response into components.
 
-        Format: +CGNSINF: <run>,<fix>,<utc>,<lat>,<lon>,<alt>,<speed>,<course>,...
+        A7670E format:
+          +CGNSSINFO: <mode>,<GPS-SVs>,<GLONASS-SVs>,<BEIDOU-SVs>,
+                      <lat>,<N/S>,<lon>,<E/W>,<date>,<UTC-time>,
+                      <alt>,<speed>,<course>
+
+        Fields with no fix are empty, e.g.:
+          +CGNSSINFO: ,,,,,,,,,,,,
 
         Args:
             response: Raw AT response string
@@ -597,44 +602,71 @@ class A7670E:
             (fix_status, lat, lng, utc_time) — fix_status=1 means valid fix
         """
         for line in response.splitlines():
-            if "+CGNSINF:" not in line:
+            if "+CGNSSINFO:" not in line:
                 continue
 
             try:
-                # Extract data after "+CGNSINF: "
-                data = line.split(":")[1].strip()
+                data = line.split(":", 1)[1].strip()
                 fields = data.split(",")
 
-                if len(fields) < 5:
+                if len(fields) < 8:
                     return (0, None, None, None)
 
-                # Field 0: GNSS run status
-                # Field 1: Fix status (1=valid)
-                fix_status = int(fields[1].strip())
-
-                if fix_status != 1:
+                # No fix if lat field is empty
+                lat_str = fields[4].strip()
+                if not lat_str:
                     return (0, None, None, None)
 
-                # Field 2: UTC datetime
-                utc_time = fields[2].strip() if len(fields) > 2 else None
+                # Parse latitude (DDMM.MMMMMM) and hemisphere
+                lat_raw = float(lat_str)
+                lat_ns = fields[5].strip()
+                lat_deg = int(lat_raw / 100)
+                lat_min = lat_raw - lat_deg * 100
+                lat = lat_deg + lat_min / 60.0
+                if lat_ns == "S":
+                    lat = -lat
 
-                # Field 3: Latitude
-                lat = float(fields[3].strip())
-
-                # Field 4: Longitude
-                lng = float(fields[4].strip())
+                # Parse longitude (DDDMM.MMMMMM) and hemisphere
+                lng_raw = float(fields[6].strip())
+                lng_ew = fields[7].strip()
+                lng_deg = int(lng_raw / 100)
+                lng_min = lng_raw - lng_deg * 100
+                lng = lng_deg + lng_min / 60.0
+                if lng_ew == "W":
+                    lng = -lng
 
                 # Sanity check
                 if lat == 0.0 and lng == 0.0:
                     return (0, None, None, None)
 
-                return (fix_status, lat, lng, utc_time)
+                # UTC time (field 9)
+                utc_time = fields[9].strip() if len(fields) > 9 and fields[9].strip() else None
+
+                return (1, lat, lng, utc_time)
 
             except (IndexError, ValueError) as e:
                 print(f"  GNSS parse error: {e}")
                 return (0, None, None, None)
 
         return (0, None, None, None)
+
+    def poll_gnss_once(self):
+        """
+        Send AT+CGNSSINFO once and return the result immediately.
+
+        Used by the dual-poll loop in panic.py instead of the blocking
+        acquire_gps() method. Does not loop or retry — single shot.
+
+        Returns:
+            (lat, lng, utc_time) on valid fix, or (None, None, None)
+        """
+        resp = self.send_command("AT+CGNSSINFO", timeout=2.0)
+        fix_status, lat, lng, utc_time = self.parse_gnss_response(resp)
+
+        if fix_status == 1 and lat is not None and lng is not None:
+            return (lat, lng, utc_time)
+
+        return (None, None, None)
 
     @staticmethod
     def build_map_link(lat, lng):

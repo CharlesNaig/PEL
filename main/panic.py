@@ -34,7 +34,7 @@ def _wait_button_release(timeout=10.0):
 
 # ── Phase 1–3: Handle Panic Sequence ──────────────────────────────────────
 
-def handle_panic_sequence(modem):
+def handle_panic_sequence(modem, gtu7_module=None):
     """
     Full 4-phase panic sequence triggered by a button press.
 
@@ -45,6 +45,7 @@ def handle_panic_sequence(modem):
 
     Args:
         modem: Initialised A7670E instance
+        gtu7_module: Optional GTU7 instance (None if disabled/unavailable)
 
     Port of: handlePanicSequence() in main.ino (lines 177-297)
     """
@@ -128,16 +129,17 @@ def handle_panic_sequence(modem):
     print("=========================================")
     print(">>> EXECUTING PANIC ROUTINE <<<")
     print("=========================================")
-    execute_panic(modem)
+    execute_panic(modem, gtu7_module)
 
 
 # ── Phase 4: Execute Panic Routine ────────────────────────────────────────
 
-def execute_panic(modem):
+def execute_panic(modem, gtu7_module=None):
     """
     GPS acquisition → SMS sending → Logging → Feedback.
 
     Key behaviour:
+      - Polls BOTH A7670E GNSS and GT-U7 each cycle — first valid fix wins.
       - GPS retries indefinitely (restarts GNSS each cycle) until
         a valid fix is obtained. Set GPS_MAX_CYCLES > 0 to cap.
       - SMS retries with modem wake/reconnect until at least one
@@ -148,6 +150,7 @@ def execute_panic(modem):
 
     Args:
         modem: Initialised A7670E instance
+        gtu7_module: Optional GTU7 instance (None to use A7670E only)
 
     Port of: executePanic() in main.ino (lines 299-400)
     """
@@ -162,10 +165,15 @@ def execute_panic(modem):
     limit_label = ("unlimited"
                    if config.GPS_MAX_CYCLES == 0
                    else str(config.GPS_MAX_CYCLES))
+    gps_sources = "A7670E"
+    if gtu7_module and gtu7_module.is_enabled:
+        gps_sources += " + GT-U7"
+    print(f"GPS sources: {gps_sources}")
     print(f"Cycle timeout: {config.GPS_TIMEOUT}s  |  Max cycles: {limit_label}")
     print()
 
     lat, lng, utc_time = None, None, None
+    gps_source = None
     gps_cycle = 0
 
     while lat is None or lng is None:
@@ -185,14 +193,38 @@ def execute_panic(modem):
                 break
             continue
 
-        # Enable GNSS — fresh start each cycle
+        # Enable A7670E GNSS — fresh start each cycle
         modem.enable_gnss()
         time.sleep(1.0)
 
-        lat, lng, utc_time = modem.acquire_gps(
-            timeout=config.GPS_TIMEOUT,
-            poll_interval=config.GPS_POLL_INTERVAL,
-        )
+        # Dual-poll loop: check both GPS sources each interval
+        poll_start = time.time()
+        poll_count = 0
+
+        while (time.time() - poll_start) < config.GPS_TIMEOUT:
+            poll_count += 1
+            remaining = config.GPS_TIMEOUT - (time.time() - poll_start)
+            print(f"  GPS poll #{poll_count}  ({remaining:.0f}s remaining)")
+
+            # Poll A7670E GNSS
+            lat, lng, utc_time = modem.poll_gnss_once()
+            if lat is not None:
+                gps_source = "A7670E"
+                break
+
+            # Poll GT-U7 (if available)
+            if gtu7_module and gtu7_module.is_enabled:
+                lat, lng, utc_time = gtu7_module.poll_fix()
+                if lat is not None:
+                    gps_source = "GT-U7"
+                    break
+
+            print("  No fix yet...")
+
+            # Wait before next poll, but check timeout
+            wait_end = time.time() + config.GPS_POLL_INTERVAL
+            while time.time() < wait_end and (time.time() - poll_start) < config.GPS_TIMEOUT:
+                time.sleep(0.1)
 
         if lat is not None and lng is not None:
             break  # got a fix!
@@ -228,7 +260,7 @@ def execute_panic(modem):
         return
 
     print()
-    print("✓ GPS FIX ACQUIRED!")
+    print(f"✓ GPS FIX via {gps_source}!")
     print(f"  Latitude:  {lat:.6f}")
     print(f"  Longitude: {lng:.6f}")
     if utc_time:
