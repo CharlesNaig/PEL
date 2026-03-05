@@ -147,6 +147,7 @@ def setup():
         print("System running in limited mode — hold button 3s to arm.")
         led.blink_red(interval=1.0)
         buzzer.fail_sound()
+        buzzer.buzzer_off()   # guarantee buzzer is silent after fail tone
 
     print()
     return modem

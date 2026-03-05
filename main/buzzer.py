@@ -17,7 +17,10 @@ def setup():
     Initialize relay pin as output, buzzer OFF.
     Maps to: pinMode(RELAY_PIN, OUTPUT); buzzerOff(); in main.ino setup()
     """
-    GPIO.setup(PIN_RELAY, GPIO.OUT)
+    # Set initial state immediately so the relay never glitches ON during boot.
+    # Active-LOW relay: HIGH = off.  Active-HIGH relay: LOW = off.
+    init_state = GPIO.HIGH if RELAY_ACTIVE_LOW else GPIO.LOW
+    GPIO.setup(PIN_RELAY, GPIO.OUT, initial=init_state)
     buzzer_off()
 
 
