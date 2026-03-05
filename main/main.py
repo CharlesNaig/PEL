@@ -22,7 +22,8 @@ import panic
 
 def setup():
     """
-    Initialize all peripherals. Returns A7670E modem instance.
+    Initialize all peripherals with warm-up component checks.
+    Returns A7670E modem instance (or None if modem unavailable).
     Port of: setup() in main.ino (lines 125-170)
     """
     # ── GPIO global config ──────────────────────────────────────────────
@@ -36,35 +37,66 @@ def setup():
     buzzer.setup()
     led.setup()
 
+    # ── Power-on confirmation beep ──────────────────────────────────────
+    buzzer.tick()
+
     print("=================================")
     print(" Panic Button Emergency Locator")
     print(" Raspberry Pi + A7670E Edition")
     print("=================================")
-
-    # ── A7670E modem ────────────────────────────────────────────────────
     print()
-    print("Modem: ", end="")
 
-    # Determine serial port based on connection mode
+    # ── Component warm-up checks ────────────────────────────────────────
+    print("Warming up — checking components...")
+    print("---------------------------------")
+    all_ok = True
+
+    # 1) Green LED
+    led.green_on()
+    time.sleep(0.3)
+    led.green_off()
+    print("  Green LED : OK")
+
+    # 2) Red LED
+    led.red_on()
+    time.sleep(0.3)
+    led.red_off()
+    print("  Red LED   : OK")
+
+    # 3) Buzzer (short tick)
+    buzzer.tick()
+    print("  Buzzer    : OK")
+
+    # 4) Button GPIO (verify it's readable — HIGH when not pressed)
+    try:
+        btn_state = GPIO.input(config.PIN_BUTTON)
+        if btn_state == GPIO.HIGH:
+            print("  Button    : OK (idle)")
+        else:
+            print("  Button    : OK (pressed — release it)")
+    except Exception:
+        print("  Button    : FAIL")
+        all_ok = False
+
+    # 5) A7670E modem
+    print("  Modem     : detecting...", end="\r")
     port = config.SERIAL_PORT
+    modem = None
+    modem_ok = False
+
     if config.SERIAL_MODE == "usb" and port == "auto":
         from a7670e import find_usb_at_port
         detected = find_usb_at_port()
         if detected:
             port = detected
         else:
-            print("NOT FOUND — no USB serial port detected")
             port = None
     elif port == "auto":
-        # GPIO mode fallback
         port = "/dev/serial0"
 
-    # For USB mode, PWRKEY control is not needed (module powers via USB)
     pwrkey = config.PIN_PWRKEY if config.SERIAL_MODE == "gpio" else None
 
-    if port is None:
-        modem = None
-    else:
+    if port is not None:
         modem = A7670E(
             port=port,
             baud=config.SERIAL_BAUD,
@@ -75,14 +107,22 @@ def setup():
 
     if modem and modem.is_connected:
         if modem.init_module():
-            print("Modem: OK")
+            print("  Modem     : OK                ")
+            modem_ok = True
         else:
-            print("Modem: WARNING — check SIM / signal")
+            print("  Modem     : WARNING — check SIM / signal")
+            modem_ok = True  # modem exists but SIM issue
     elif modem:
-        print("Modem: NOT CONNECTED — check wiring")
+        print("  Modem     : FAIL — not responding")
+        all_ok = False
     else:
-        print("Modem: NOT FOUND — check USB cable or port config")
+        print("  Modem     : FAIL — not detected  ")
+        all_ok = False
 
+    # Ensure buzzer is definitely off after warm-up
+    buzzer.buzzer_off()
+
+    # ── Status summary ──────────────────────────────────────────────────
     print("---------------------------------")
     print(f"Owner:    {config.OWNER_NAME}")
     print(f"Contacts: {len(config.CONTACTS)}")
@@ -90,12 +130,25 @@ def setup():
         print(f"  • {c['name']} ({c['number']})")
     print(f"Log file: {config.LOG_FILE}")
     print("---------------------------------")
-    print("System Ready. Hold button 3s to arm.")
+
+    if all_ok:
+        print("All components OK — System Ready.")
+        print("Hold button 3s to arm.")
+        led.solid_green()
+        buzzer.double_beep()
+    elif modem_ok:
+        print("System Ready (modem has warnings).")
+        print("Hold button 3s to arm.")
+        led.solid_green()
+        buzzer.double_beep()
+    else:
+        print("WARNING: Modem not available!")
+        print("SMS/GPS will not work until modem is connected.")
+        print("System running in limited mode — hold button 3s to arm.")
+        led.blink_red(interval=1.0)
+        buzzer.fail_sound()
+
     print()
-
-    # Indicate ready state — solid green LED
-    led.solid_green()
-
     return modem
 
 
