@@ -16,6 +16,7 @@ import RPi.GPIO as GPIO
 import config
 from a7670e import A7670E
 from gtu7 import GTU7
+from gps_poller import GPSPoller
 import buzzer
 import led
 import panic
@@ -138,6 +139,19 @@ def setup():
     else:
         print("  GPS (GT-U7): disabled in config")
 
+    # 7) Start background GPS poller (24/7 live tracking)
+    gps_poller = None
+    if config.GPS_BG_ENABLED and (modem or gtu7_module):
+        gps_poller = GPSPoller(
+            modem=modem,
+            gtu7_module=gtu7_module,
+            poll_interval=config.GPS_BG_POLL_INTERVAL,
+        )
+        gps_poller.start()
+        print("  GPS Poller: LIVE (background)")
+    else:
+        print("  GPS Poller: disabled")
+
     # Ensure buzzer is definitely off after warm-up
     buzzer.buzzer_off()
 
@@ -169,10 +183,10 @@ def setup():
         buzzer.buzzer_off()   # guarantee buzzer is silent after fail tone
 
     print()
-    return modem, gtu7_module
+    return modem, gtu7_module, gps_poller
 
 
-def loop(modem, gtu7_module=None):
+def loop(modem, gtu7_module=None, gps_poller=None):
     """
     Main polling loop. Checks for button press and triggers panic sequence.
     Sends periodic keepalive AT pings so the module never goes stale.
@@ -184,7 +198,7 @@ def loop(modem, gtu7_module=None):
         if GPIO.input(config.PIN_BUTTON) == GPIO.LOW:
             time.sleep(config.DEBOUNCE_DELAY)
             if GPIO.input(config.PIN_BUTTON) == GPIO.LOW:
-                panic.handle_panic_sequence(modem, gtu7_module)
+                panic.handle_panic_sequence(modem, gtu7_module, gps_poller)
                 # Re-establish idle state after sequence completes
                 led.solid_green()
                 last_keepalive = time.time()
@@ -206,9 +220,10 @@ def main():
     """Application entry point with clean shutdown."""
     modem = None
     gtu7_module = None
+    gps_poller = None
     try:
-        modem, gtu7_module = setup()
-        loop(modem, gtu7_module)
+        modem, gtu7_module, gps_poller = setup()
+        loop(modem, gtu7_module, gps_poller)
 
     except KeyboardInterrupt:
         print("\nShutdown requested (Ctrl+C)")
@@ -220,6 +235,8 @@ def main():
 
     finally:
         print("Cleaning up...")
+        if gps_poller:
+            gps_poller.stop()
         led.all_off()
         buzzer.buzzer_off()
         if gtu7_module:

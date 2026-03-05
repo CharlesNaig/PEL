@@ -34,7 +34,7 @@ def _wait_button_release(timeout=10.0):
 
 # ── Phase 1–3: Handle Panic Sequence ──────────────────────────────────────
 
-def handle_panic_sequence(modem, gtu7_module=None):
+def handle_panic_sequence(modem, gtu7_module=None, gps_poller=None):
     """
     Full 4-phase panic sequence triggered by a button press.
 
@@ -46,6 +46,7 @@ def handle_panic_sequence(modem, gtu7_module=None):
     Args:
         modem: Initialised A7670E instance
         gtu7_module: Optional GTU7 instance (None if disabled/unavailable)
+        gps_poller: Optional GPSPoller instance for cached background fixes
 
     Port of: handlePanicSequence() in main.ino (lines 177-297)
     """
@@ -129,28 +130,29 @@ def handle_panic_sequence(modem, gtu7_module=None):
     print("=========================================")
     print(">>> EXECUTING PANIC ROUTINE <<<")
     print("=========================================")
-    execute_panic(modem, gtu7_module)
+    execute_panic(modem, gtu7_module, gps_poller)
 
 
 # ── Phase 4: Execute Panic Routine ────────────────────────────────────────
 
-def execute_panic(modem, gtu7_module=None):
+def execute_panic(modem, gtu7_module=None, gps_poller=None):
     """
     GPS acquisition → SMS sending → Logging → Feedback.
 
     Key behaviour:
-      - Polls BOTH A7670E GNSS and GT-U7 each cycle — first valid fix wins.
-      - GPS retries indefinitely (restarts GNSS each cycle) until
-        a valid fix is obtained. Set GPS_MAX_CYCLES > 0 to cap.
+      - First checks the background GPS poller for a cached fix.
+        If a fresh fix exists (< GPS_BG_MAX_AGE seconds old), it's
+        used immediately — no waiting for satellites.
+      - If no cached fix, polls BOTH A7670E GNSS and GT-U7 each cycle
+        until a valid fix is obtained.
+      - Pauses the background poller during SMS (modem is busy).
       - SMS retries with modem wake/reconnect until at least one
-        contact receives the alert. Set SMS_MAX_CYCLES > 0 to cap.
-      - The modem is woken before every critical operation so an
-        idle-timeout (no response after long standby) is recovered
-        automatically.
+        contact receives the alert.
 
     Args:
         modem: Initialised A7670E instance
         gtu7_module: Optional GTU7 instance (None to use A7670E only)
+        gps_poller: Optional GPSPoller instance for cached background fixes
 
     Port of: executePanic() in main.ino (lines 299-400)
     """
@@ -176,68 +178,86 @@ def execute_panic(modem, gtu7_module=None):
     gps_source = None
     gps_cycle = 0
 
-    while lat is None or lng is None:
-        gps_cycle += 1
-        cycle_tag = (f"#{gps_cycle}"
-                     + (f"/{config.GPS_MAX_CYCLES}"
-                        if config.GPS_MAX_CYCLES > 0 else ""))
-        print(f"  --- GPS cycle {cycle_tag} ---")
+    # ── Check background poller for cached fix first ─────────────
+    if gps_poller and gps_poller.has_fix:
+        lat, lng, utc_time, gps_source = gps_poller.get_fix(
+            max_age=config.GPS_BG_MAX_AGE
+        )
+        if lat is not None:
+            age = gps_poller.fix_age
+            print(f"  Using cached background fix ({age:.0f}s old)")
 
-        # Wake modem (recovers from idle timeout)
-        led.blink_green(interval=0.3)
-        if not modem.wake(max_attempts=config.MODEM_WAKE_ATTEMPTS):
-            print(f"  Modem unresponsive — pausing {config.GPS_CYCLE_PAUSE}s...")
-            time.sleep(config.GPS_CYCLE_PAUSE)
-            if (config.GPS_MAX_CYCLES > 0
-                    and gps_cycle >= config.GPS_MAX_CYCLES):
-                break
-            continue
+    if lat is None or lng is None:
+        # No cached fix — fall back to active polling
+        if gps_poller:
+            gps_poller.pause()  # pause background poller to avoid conflicts
 
-        # Enable A7670E GNSS — fresh start each cycle
-        modem.enable_gnss()
-        time.sleep(1.0)
+        while lat is None or lng is None:
+            gps_cycle += 1
+            cycle_tag = (f"#{gps_cycle}"
+                         + (f"/{config.GPS_MAX_CYCLES}"
+                            if config.GPS_MAX_CYCLES > 0 else ""))
+            print(f"  --- GPS cycle {cycle_tag} ---")
 
-        # Dual-poll loop: check both GPS sources each interval
-        poll_start = time.time()
-        poll_count = 0
+            # Wake modem (recovers from idle timeout)
+            led.blink_green(interval=0.3)
+            if not modem.wake(max_attempts=config.MODEM_WAKE_ATTEMPTS):
+                print(f"  Modem unresponsive — pausing {config.GPS_CYCLE_PAUSE}s...")
+                time.sleep(config.GPS_CYCLE_PAUSE)
+                if (config.GPS_MAX_CYCLES > 0
+                        and gps_cycle >= config.GPS_MAX_CYCLES):
+                    break
+                continue
 
-        while (time.time() - poll_start) < config.GPS_TIMEOUT:
-            poll_count += 1
-            remaining = config.GPS_TIMEOUT - (time.time() - poll_start)
-            print(f"  GPS poll #{poll_count}  ({remaining:.0f}s remaining)")
+            # Enable A7670E GNSS — fresh start each cycle
+            modem.enable_gnss()
+            time.sleep(1.0)
 
-            # Poll A7670E GNSS
-            lat, lng, utc_time = modem.poll_gnss_once()
-            if lat is not None:
-                gps_source = "A7670E"
-                break
+            # Dual-poll loop: check both GPS sources each interval
+            poll_start = time.time()
+            poll_count = 0
 
-            # Poll GT-U7 (if available)
-            if gtu7_module and gtu7_module.is_enabled:
-                lat, lng, utc_time = gtu7_module.poll_fix()
+            while (time.time() - poll_start) < config.GPS_TIMEOUT:
+                poll_count += 1
+                remaining = config.GPS_TIMEOUT - (time.time() - poll_start)
+                print(f"  GPS poll #{poll_count}  ({remaining:.0f}s remaining)")
+
+                # Poll A7670E GNSS
+                lat, lng, utc_time = modem.poll_gnss_once()
                 if lat is not None:
-                    gps_source = "GT-U7"
+                    gps_source = "A7670E"
                     break
 
-            print("  No fix yet...")
+                # Poll GT-U7 (if available)
+                if gtu7_module and gtu7_module.is_enabled:
+                    lat, lng, utc_time = gtu7_module.poll_fix()
+                    if lat is not None:
+                        gps_source = "GT-U7"
+                        break
 
-            # Wait before next poll, but check timeout
-            wait_end = time.time() + config.GPS_POLL_INTERVAL
-            while time.time() < wait_end and (time.time() - poll_start) < config.GPS_TIMEOUT:
-                time.sleep(0.1)
+                print("  No fix yet...")
 
-        if lat is not None and lng is not None:
-            break  # got a fix!
+                # Wait before next poll, but check timeout
+                wait_end = time.time() + config.GPS_POLL_INTERVAL
+                while time.time() < wait_end and (time.time() - poll_start) < config.GPS_TIMEOUT:
+                    time.sleep(0.1)
 
-        # Cycle failed — restart GNSS for next attempt
-        print(f"  GPS cycle {cycle_tag} — no fix. Restarting GNSS...")
-        modem.disable_gnss()
-        time.sleep(config.GPS_CYCLE_PAUSE)
+            if lat is not None and lng is not None:
+                break  # got a fix!
 
-        if (config.GPS_MAX_CYCLES > 0
-                and gps_cycle >= config.GPS_MAX_CYCLES):
-            print("  GPS max cycles reached — giving up.")
-            break
+            # Cycle failed — restart GNSS for next attempt
+            print(f"  GPS cycle {cycle_tag} — no fix. Restarting GNSS...")
+            modem.disable_gnss()
+            time.sleep(config.GPS_CYCLE_PAUSE)
+
+            if (config.GPS_MAX_CYCLES > 0
+                    and gps_cycle >= config.GPS_MAX_CYCLES):
+                print("  GPS max cycles reached — giving up.")
+                break
+
+        # Resume background poller after active polling
+        if gps_poller:
+            gps_poller.resume()
 
     # Check ultimate GPS result
     if lat is None or lng is None:
@@ -255,6 +275,9 @@ def execute_panic(modem, gtu7_module=None):
         time.sleep(0.5)
         led.all_off()
         modem.disable_gnss()
+        # Resume background poller even on failure
+        if gps_poller:
+            gps_poller.resume()
         print("System Idle.")
         print("=========================================\n")
         return
@@ -269,6 +292,10 @@ def execute_panic(modem, gtu7_module=None):
 
     # Turn off GNSS to free UART bandwidth for SMS
     modem.disable_gnss()
+
+    # Pause background GPS during SMS (modem busy with AT+CMGS)
+    if gps_poller:
+        gps_poller.pause()
 
     # ── Step 2: Send SMS (retry until success) ───────────────────────
     print()
@@ -361,6 +388,11 @@ def execute_panic(modem, gtu7_module=None):
         time.sleep(0.5)
 
     led.all_off()
+
+    # Resume background GPS polling
+    if gps_poller:
+        gps_poller.resume()
+
     print("-----------------------------------------")
     print("System Idle.")
     print("=========================================\n")

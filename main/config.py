@@ -88,6 +88,17 @@ GTU7_BAUD         = 9600              # GT-U7 default baud rate
 GTU7_TIMEOUT      = 1.0              # Serial read timeout (seconds)
 
 # ==============================================================
+# GPS BACKGROUND POLLER
+# ==============================================================
+# Continuously polls both GPS modules in background so a fix is
+# already cached when the panic button is pressed.
+# ==============================================================
+
+GPS_BG_ENABLED       = True    # Enable 24/7 background GPS polling
+GPS_BG_POLL_INTERVAL = 5       # Seconds between background polls
+GPS_BG_MAX_AGE       = 60      # Max fix age (seconds) to accept as "fresh"
+
+# ==============================================================
 # TIMING CONSTANTS
 # ==============================================================
 

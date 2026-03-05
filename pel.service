@@ -1,0 +1,26 @@
+[Unit]
+Description=PEL - Panic Button Emergency Locator
+Documentation=https://github.com/CharlesNaig/PEL
+After=multi-user.target
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/charles/PEL/main
+ExecStart=/bin/bash /home/charles/PEL/startup.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Give the modem time to settle on boot
+ExecStartPre=/bin/sleep 3
+
+# Clean shutdown — sends SIGINT (same as Ctrl+C)
+KillSignal=SIGINT
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
