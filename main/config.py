@@ -33,7 +33,7 @@ CONTACTS = [
 
 SMS_TEMPLATE = (
     "EMERGENCY! {owner_name} pressed the panic button.\n"
-    "{contact_name}, please check on them immediately.\n"
+    "{contact_name}, please check on them immediately.\n\n"
     "GPS: {map_link}\n"
     "(Paste into Google Maps)"
 )
