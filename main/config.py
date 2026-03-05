@@ -31,18 +31,16 @@ CONTACTS = [
 # ==============================================================
 
 SMS_TEMPLATE = (
-    "EMERGENCY ALERT!\n"
-    "\n"
-    "Hey {contact_name}, I'm letting you know that the emergency "
-    "panic button has been pressed by {owner_name}.\n"
-    "\n"
-    "I've got his/her location from the GPS device. "
-    "Here is the Google Maps link:\n"
-    "\n"
-    "{map_link}\n"
-    "\n"
-    "Please respond immediately and check on his/her safety."
+    "EMERGENCY! {owner_name} pressed the panic button.\n"
+    "{contact_name}, please check on them immediately.\n"
+    "GPS: {map_link}\n"
+    "(Paste into Google Maps)"
 )
+# Filled example (147 chars):
+# EMERGENCY! Charles pressed the panic button.
+# Andrew Felipe, please check on them immediately.
+# GPS: 14.599512, 120.984222
+# (Paste into Google Maps)
 
 # ==============================================================
 # GPIO PIN CONFIGURATION (BCM numbering)
@@ -76,11 +74,17 @@ SERIAL_TIMEOUT = 1.0              # Serial read timeout (seconds)
 # TIMING CONSTANTS
 # ==============================================================
 
-GPS_TIMEOUT       = 30     # Seconds to wait for GNSS fix
+GPS_TIMEOUT       = 30     # Seconds to wait for GNSS fix per cycle
 GPS_POLL_INTERVAL = 5      # Seconds between AT+CGNSINF polls
+GPS_MAX_CYCLES    = 0      # Max GPS retry cycles (0 = unlimited — never give up)
+GPS_CYCLE_PAUSE   = 5      # Seconds pause between GPS retry cycles
 ARM_HOLD_TIME     = 3.0    # Seconds button must be held to arm
 CANCEL_WINDOW     = 3.0    # Seconds user has to cancel after arming
-SMS_RETRY_COUNT   = 3      # Retries per contact on SMS failure
+SMS_RETRY_COUNT   = 3      # Retries per contact per SMS cycle
+SMS_MAX_CYCLES    = 0      # Max SMS send cycles (0 = unlimited — never give up)
+SMS_CYCLE_PAUSE   = 5      # Seconds pause between SMS retry cycles
+MODEM_WAKE_ATTEMPTS = 10   # Max AT pings to wake an idle modem
+KEEPALIVE_INTERVAL  = 120  # Seconds between idle keepalive pings (0 = off)
 DEBOUNCE_DELAY    = 0.05   # Button debounce delay (50ms)
 
 # ==============================================================

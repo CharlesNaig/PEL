@@ -137,6 +137,15 @@ def execute_panic(modem):
     """
     GPS acquisition → SMS sending → Logging → Feedback.
 
+    Key behaviour:
+      - GPS retries indefinitely (restarts GNSS each cycle) until
+        a valid fix is obtained. Set GPS_MAX_CYCLES > 0 to cap.
+      - SMS retries with modem wake/reconnect until at least one
+        contact receives the alert. Set SMS_MAX_CYCLES > 0 to cap.
+      - The modem is woken before every critical operation so an
+        idle-timeout (no response after long standby) is recovered
+        automatically.
+
     Args:
         modem: Initialised A7670E instance
 
@@ -145,30 +154,63 @@ def execute_panic(modem):
     led.green_on()
     buzzer.tick()
 
-    # --- Step 1: Acquire GPS ─────────────────────────────────────────
+    # ── Step 1: Acquire GPS (retry until success) ────────────────────
     print()
     print("[STEP 1/4] GPS ACQUISITION")
     print("-----------------------------------------")
     print("Searching for GPS satellites...")
-    print(f"Timeout: {config.GPS_TIMEOUT} seconds")
-    print("Green LED blinks while searching...")
+    limit_label = ("unlimited"
+                   if config.GPS_MAX_CYCLES == 0
+                   else str(config.GPS_MAX_CYCLES))
+    print(f"Cycle timeout: {config.GPS_TIMEOUT}s  |  Max cycles: {limit_label}")
     print()
 
-    led.blink_green(interval=0.3)
+    lat, lng, utc_time = None, None, None
+    gps_cycle = 0
 
-    # Enable GNSS engine
-    modem.enable_gnss()
-    time.sleep(1.0)
+    while lat is None or lng is None:
+        gps_cycle += 1
+        cycle_tag = (f"#{gps_cycle}"
+                     + (f"/{config.GPS_MAX_CYCLES}"
+                        if config.GPS_MAX_CYCLES > 0 else ""))
+        print(f"  --- GPS cycle {cycle_tag} ---")
 
-    lat, lng, utc_time = modem.acquire_gps(
-        timeout=config.GPS_TIMEOUT,
-        poll_interval=config.GPS_POLL_INTERVAL,
-    )
+        # Wake modem (recovers from idle timeout)
+        led.blink_green(interval=0.3)
+        if not modem.wake(max_attempts=config.MODEM_WAKE_ATTEMPTS):
+            print(f"  Modem unresponsive — pausing {config.GPS_CYCLE_PAUSE}s...")
+            time.sleep(config.GPS_CYCLE_PAUSE)
+            if (config.GPS_MAX_CYCLES > 0
+                    and gps_cycle >= config.GPS_MAX_CYCLES):
+                break
+            continue
 
+        # Enable GNSS — fresh start each cycle
+        modem.enable_gnss()
+        time.sleep(1.0)
+
+        lat, lng, utc_time = modem.acquire_gps(
+            timeout=config.GPS_TIMEOUT,
+            poll_interval=config.GPS_POLL_INTERVAL,
+        )
+
+        if lat is not None and lng is not None:
+            break  # got a fix!
+
+        # Cycle failed — restart GNSS for next attempt
+        print(f"  GPS cycle {cycle_tag} — no fix. Restarting GNSS...")
+        modem.disable_gnss()
+        time.sleep(config.GPS_CYCLE_PAUSE)
+
+        if (config.GPS_MAX_CYCLES > 0
+                and gps_cycle >= config.GPS_MAX_CYCLES):
+            print("  GPS max cycles reached — giving up.")
+            break
+
+    # Check ultimate GPS result
     if lat is None or lng is None:
-        # GPS FAILED
         print()
-        print("✗ GPS TIMEOUT — No satellites found")
+        print("✗ GPS FAILED — No satellites found")
         print("  Possible causes:")
         print("  - Testing indoors (GPS needs clear sky)")
         print("  - GNSS antenna not connected")
@@ -196,29 +238,65 @@ def execute_panic(modem):
     # Turn off GNSS to free UART bandwidth for SMS
     modem.disable_gnss()
 
-    # --- Step 2: Send SMS to all contacts ────────────────────────────
+    # ── Step 2: Send SMS (retry until success) ───────────────────────
     print()
     print("[STEP 2/4] SMS TRANSMISSION")
     print("-----------------------------------------")
 
     map_link = modem.build_map_link(lat, lng)
-    print(f"Maps Link: {map_link}")
+    print(f"GPS Coords: {map_link}")
     print()
     print(f"Sending to {len(config.CONTACTS)} emergency contacts...")
 
-    led.blink_green_fast(interval=0.3)
+    sms_ok = False
+    sms_cycle = 0
 
-    sms_ok = modem.send_to_all_contacts(
-        contacts=config.CONTACTS,
-        map_link=map_link,
-        owner_name=config.OWNER_NAME,
-        sms_template=config.SMS_TEMPLATE,
-        retries=config.SMS_RETRY_COUNT,
-    )
+    while not sms_ok:
+        sms_cycle += 1
+        cycle_tag = (f"#{sms_cycle}"
+                     + (f"/{config.SMS_MAX_CYCLES}"
+                        if config.SMS_MAX_CYCLES > 0 else ""))
+        print(f"\n  --- SMS cycle {cycle_tag} ---")
+
+        # Wake modem (may have gone idle during GPS)
+        led.blink_green_fast(interval=0.3)
+        if not modem.wake(max_attempts=config.MODEM_WAKE_ATTEMPTS):
+            print(f"  Modem unresponsive — pausing {config.SMS_CYCLE_PAUSE}s...")
+            time.sleep(config.SMS_CYCLE_PAUSE)
+            if (config.SMS_MAX_CYCLES > 0
+                    and sms_cycle >= config.SMS_MAX_CYCLES):
+                print("  SMS max cycles reached — giving up.")
+                break
+            continue
+
+        # Re-init SMS mode (may be lost after reconnect)
+        modem.send_command("AT+CMGF=1", timeout=1.0)
+        modem.send_command('AT+CSCS="GSM"', timeout=1.0)
+        modem.send_command("AT+CSMP=17,167,0,0", timeout=1.0)
+
+        sms_ok = modem.send_to_all_contacts(
+            contacts=config.CONTACTS,
+            map_link=map_link,
+            owner_name=config.OWNER_NAME,
+            sms_template=config.SMS_TEMPLATE,
+            retries=config.SMS_RETRY_COUNT,
+        )
+
+        if sms_ok:
+            break
+
+        print(f"  SMS cycle {cycle_tag} failed — retrying in "
+              f"{config.SMS_CYCLE_PAUSE}s...")
+        time.sleep(config.SMS_CYCLE_PAUSE)
+
+        if (config.SMS_MAX_CYCLES > 0
+                and sms_cycle >= config.SMS_MAX_CYCLES):
+            print("  SMS max cycles reached — giving up.")
+            break
 
     print("-----------------------------------------")
 
-    # --- Step 3: Log event ───────────────────────────────────────────
+    # ── Step 3: Log event ────────────────────────────────────────────
     print()
     print("[STEP 3/4] FILE LOGGING")
     print("-----------------------------------------")
@@ -228,7 +306,7 @@ def execute_panic(modem):
         logger.log_event("FAILED — SMS Send Error", lat, lng, utc_time)
     print("-----------------------------------------")
 
-    # --- Step 4: Feedback ────────────────────────────────────────────
+    # ── Step 4: Feedback ─────────────────────────────────────────────
     print()
     print("[STEP 4/4] FINAL STATUS")
     print("-----------------------------------------")

@@ -107,6 +107,7 @@ class A7670E:
         """
         self.port = port
         self.timeout = timeout
+        self._baud = baud
         self.ser = None
         self._connected = False
         self._pwrkey_pin = pwrkey_pin
@@ -146,6 +147,7 @@ class A7670E:
 
             if self._probe():
                 print(f"[A7670E] Connected at {fallback_baud} baud")
+                self._baud = fallback_baud
                 self._connected = True
                 return
         except serial.SerialException as e:
@@ -165,6 +167,89 @@ class A7670E:
         if self.ser and self.ser.is_open:
             self.ser.close()
             print("[A7670E] Serial port closed")
+
+    # ==========================================================
+    # Connection recovery helpers
+    # ==========================================================
+
+    def _reopen_serial(self):
+        """
+        Close and reopen the serial port at the last-known baud rate.
+        Used to recover from stale/hung connections after long idle periods.
+        """
+        try:
+            if self.ser and self.ser.is_open:
+                self.ser.close()
+            time.sleep(1.0)
+            self.ser = serial.Serial(
+                self.port, self._baud, timeout=self.timeout,
+                xonxoff=False, rtscts=False, dsrdtr=False,
+            )
+            time.sleep(0.5)
+            self._flush()
+            print("[A7670E] Serial port reopened")
+        except serial.SerialException as e:
+            print(f"[A7670E] Reopen error: {e}")
+
+    def wake(self, max_attempts=10):
+        """
+        Ensure the module is responsive after a long idle period.
+
+        Strategy (per attempt):
+          1. Send AT — if OK, module is alive.
+          2. Reopen serial port and retry AT.
+          3. (GPIO mode) Pulse PWRKEY to power-cycle the module.
+
+        Args:
+            max_attempts: Maximum wake cycles before giving up
+
+        Returns:
+            True if module is responsive
+        """
+        for attempt in range(max_attempts):
+            # Quick AT ping
+            try:
+                resp = self.send_command("AT", timeout=2.0)
+                if "OK" in resp:
+                    if attempt > 0:
+                        print(f"[A7670E] Module awake (attempt {attempt + 1})")
+                    return True
+            except Exception:
+                pass
+
+            print(f"[A7670E] No response — waking "
+                  f"(attempt {attempt + 1}/{max_attempts})")
+
+            # Reopen serial and retry
+            self._reopen_serial()
+            time.sleep(0.5)
+            try:
+                resp = self.send_command("AT", timeout=2.0)
+                if "OK" in resp:
+                    print("[A7670E] Awake after serial reopen")
+                    self._connected = True
+                    return True
+            except Exception:
+                pass
+
+            # GPIO mode: pulse PWRKEY to power-cycle
+            if self._pwrkey_pin is not None:
+                print("[A7670E] Pulsing PWRKEY to restart module...")
+                self._pwrkey_pulse(self._pwrkey_pin)
+                time.sleep(3.0)
+                try:
+                    resp = self.send_command("AT", timeout=2.0)
+                    if "OK" in resp:
+                        print("[A7670E] Awake after PWRKEY pulse")
+                        self._connected = True
+                        return True
+                except Exception:
+                    pass
+
+            time.sleep(2.0)
+
+        print(f"[A7670E] FAILED to wake after {max_attempts} attempts")
+        return False
 
     # ==========================================================
     # Low-level AT helpers
@@ -554,17 +639,20 @@ class A7670E:
     @staticmethod
     def build_map_link(lat, lng):
         """
-        Build Google Maps URL from coordinates.
-        Port of: buildMapLink() in main.ino / buildMapsLink() in test_a7670e.ino
+        Build plain-text GPS coordinates string.
+
+        NOTE: Philippine carriers (Smart/Globe) silently drop SMS
+        containing URLs. We send raw coordinates instead — the
+        recipient can paste them into Google Maps or any map app.
 
         Args:
             lat: Latitude (float)
             lng: Longitude (float)
 
         Returns:
-            Google Maps URL string
+            Coordinate string, e.g. "14.599512, 120.984222"
         """
-        return f"https://maps.google.com/?q={lat:.6f},{lng:.6f}"
+        return f"{lat:.6f}, {lng:.6f}"
 
     # ==========================================================
     # SMS functions
@@ -589,6 +677,11 @@ class A7670E:
         """
         for attempt in range(retries):
             try:
+                # Ensure module is responsive (recovers from idle timeout)
+                if not self.wake(max_attempts=3):
+                    print(f"    Module unresponsive (attempt {attempt + 1}/{retries})")
+                    continue
+
                 # Set SMS text mode + GSM charset + text params
                 self.send_command("AT+CMGF=1", timeout=1.0)
                 self.send_command('AT+CSCS="GSM"', timeout=1.0)

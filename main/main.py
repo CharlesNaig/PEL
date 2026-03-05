@@ -102,8 +102,11 @@ def setup():
 def loop(modem):
     """
     Main polling loop. Checks for button press and triggers panic sequence.
+    Sends periodic keepalive AT pings so the module never goes stale.
     Port of: loop() in main.ino (lines 172-178)
     """
+    last_keepalive = time.time()
+
     while True:
         if GPIO.input(config.PIN_BUTTON) == GPIO.LOW:
             time.sleep(config.DEBOUNCE_DELAY)
@@ -111,6 +114,17 @@ def loop(modem):
                 panic.handle_panic_sequence(modem)
                 # Re-establish idle state after sequence completes
                 led.solid_green()
+                last_keepalive = time.time()
+
+        # Periodic keepalive — prevents the A7670E from becoming
+        # unresponsive after long idle periods.
+        if (modem and config.KEEPALIVE_INTERVAL > 0
+                and (time.time() - last_keepalive) >= config.KEEPALIVE_INTERVAL):
+            resp = modem.send_command("AT", timeout=2.0)
+            if "OK" not in resp:
+                print("[KEEPALIVE] Module unresponsive — waking...")
+                modem.wake(max_attempts=config.MODEM_WAKE_ATTEMPTS)
+            last_keepalive = time.time()
 
         time.sleep(0.01)  # ~10ms loop rate, same as delay(10) in Arduino
 
