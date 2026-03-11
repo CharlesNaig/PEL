@@ -16,6 +16,9 @@ import config
 import buzzer
 import led
 import logger
+from logger import get_logger
+
+log = get_logger("PEL.panic")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -50,7 +53,7 @@ def handle_panic_sequence(modem, gtu7_module=None, gps_poller=None):
 
     Port of: handlePanicSequence() in main.ino (lines 177-297)
     """
-    print("Button held — arming...")
+    log.warning("Button held — arming...")
 
     # ─── PHASE 1: Hold to Arm ──────────────────────────────────────────
     hold_start = time.time()
@@ -67,7 +70,7 @@ def handle_panic_sequence(modem, gtu7_module=None, gps_poller=None):
         if second > tick_count and tick_count < 3:
             tick_count += 1
             buzzer.tick()
-            print(f"Arming... {tick_count}/3")
+            log.info(f"Arming... {tick_count}/3")
 
         # Armed after ARM_HOLD_TIME seconds
         if elapsed >= config.ARM_HOLD_TIME:
@@ -80,11 +83,11 @@ def handle_panic_sequence(modem, gtu7_module=None, gps_poller=None):
     buzzer.buzzer_off()
 
     if not armed:
-        print("Cancelled — released too early.")
+        log.warning("Cancelled — released too early.")
         return
 
-    # ─── PHASE 2: Armed Confirmation ───────────────────────────────────
-    print("ARMED! Press button within 3s to cancel.")
+    # ─── PHASE 2: Armed Confirmation ───────────────────────────────
+    log.warning("ARMED! Press button within 3s to cancel.")
 
     led.green_on()
     led.red_on()
@@ -97,7 +100,7 @@ def handle_panic_sequence(modem, gtu7_module=None, gps_poller=None):
     time.sleep(0.1)
 
     # ─── PHASE 3: Cancellation Window ─────────────────────────────────
-    print("Cancel window open (3 seconds)...")
+    log.info("Cancel window open (3 seconds)...")
 
     cancel_start = time.time()
     cancelled = False
@@ -116,20 +119,19 @@ def handle_panic_sequence(modem, gtu7_module=None, gps_poller=None):
     led.all_off()
 
     if cancelled:
-        print("CANCELLED by user.")
+        log.warning("CANCELLED by user.")
         led.red_on()
         buzzer.cancel_sound()
         time.sleep(0.5)
         led.all_off()
         logger.log_event("CANCELLED")
-        print("System Idle.")
+        log.info("System Idle.")
         return
 
-    # ─── PHASE 4: Execute ─────────────────────────────────────────────
-    print()
-    print("=========================================")
-    print(">>> EXECUTING PANIC ROUTINE <<<")
-    print("=========================================")
+    # ─── PHASE 4: Execute ─────────────────────────────────────────
+    log.warning("=========================================")
+    log.warning(">>> EXECUTING PANIC ROUTINE <<<")
+    log.warning("=========================================")
     execute_panic(modem, gtu7_module, gps_poller)
 
 
@@ -160,19 +162,18 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
     buzzer.tick()
 
     # ── Step 1: Acquire GPS (retry until success) ────────────────────
-    print()
-    print("[STEP 1/4] GPS ACQUISITION")
-    print("-----------------------------------------")
-    print("Searching for GPS satellites...")
+    log.info("")
+    log.info("[STEP 1/4] GPS ACQUISITION")
+    log.info("-----------------------------------------")
+    log.info("Searching for GPS satellites...")
     limit_label = ("unlimited"
                    if config.GPS_MAX_CYCLES == 0
                    else str(config.GPS_MAX_CYCLES))
     gps_sources = "A7670E"
     if gtu7_module and gtu7_module.is_enabled:
         gps_sources += " + GT-U7"
-    print(f"GPS sources: {gps_sources}")
-    print(f"Cycle timeout: {config.GPS_TIMEOUT}s  |  Max cycles: {limit_label}")
-    print()
+    log.info(f"GPS sources: {gps_sources}")
+    log.info(f"Cycle timeout: {config.GPS_TIMEOUT}s  |  Max cycles: {limit_label}")
 
     lat, lng, utc_time = None, None, None
     gps_source = None
@@ -185,7 +186,7 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
         )
         if lat is not None:
             age = gps_poller.fix_age
-            print(f"  Using cached background fix ({age:.0f}s old)")
+            log.info(f"  Using cached background fix ({age:.0f}s old)")
 
     if lat is None or lng is None:
         # No cached fix — fall back to active polling
@@ -197,12 +198,12 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
             cycle_tag = (f"#{gps_cycle}"
                          + (f"/{config.GPS_MAX_CYCLES}"
                             if config.GPS_MAX_CYCLES > 0 else ""))
-            print(f"  --- GPS cycle {cycle_tag} ---")
+            log.info(f"  --- GPS cycle {cycle_tag} ---")
 
             # Wake modem (recovers from idle timeout)
             led.blink_green(interval=0.3)
             if not modem.wake(max_attempts=config.MODEM_WAKE_ATTEMPTS):
-                print(f"  Modem unresponsive — pausing {config.GPS_CYCLE_PAUSE}s...")
+                log.warning(f"  Modem unresponsive — pausing {config.GPS_CYCLE_PAUSE}s...")
                 time.sleep(config.GPS_CYCLE_PAUSE)
                 if (config.GPS_MAX_CYCLES > 0
                         and gps_cycle >= config.GPS_MAX_CYCLES):
@@ -220,7 +221,7 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
             while (time.time() - poll_start) < config.GPS_TIMEOUT:
                 poll_count += 1
                 remaining = config.GPS_TIMEOUT - (time.time() - poll_start)
-                print(f"  GPS poll #{poll_count}  ({remaining:.0f}s remaining)")
+                log.info(f"  GPS poll #{poll_count}  ({remaining:.0f}s remaining)")
 
                 # Poll A7670E GNSS
                 lat, lng, utc_time = modem.poll_gnss_once()
@@ -246,13 +247,13 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
                 break  # got a fix!
 
             # Cycle failed — restart GNSS for next attempt
-            print(f"  GPS cycle {cycle_tag} — no fix. Restarting GNSS...")
+            log.warning(f"  GPS cycle {cycle_tag} — no fix. Restarting GNSS...")
             modem.disable_gnss()
             time.sleep(config.GPS_CYCLE_PAUSE)
 
             if (config.GPS_MAX_CYCLES > 0
                     and gps_cycle >= config.GPS_MAX_CYCLES):
-                print("  GPS max cycles reached — giving up.")
+                log.error("  GPS max cycles reached — giving up.")
                 break
 
         # Resume background poller after active polling
@@ -261,13 +262,13 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
 
     # Check ultimate GPS result
     if lat is None or lng is None:
-        print()
-        print("✗ GPS FAILED — No satellites found")
-        print("  Possible causes:")
-        print("  - Testing indoors (GPS needs clear sky)")
-        print("  - GNSS antenna not connected")
-        print("  - Module not powered properly")
-        print("-----------------------------------------")
+        log.error("")
+        log.error("✗ GPS FAILED — No satellites found")
+        log.error("  Possible causes:")
+        log.error("  - Testing indoors (GPS needs clear sky)")
+        log.error("  - GNSS antenna not connected")
+        log.error("  - Module not powered properly")
+        log.error("-----------------------------------------")
         led.all_off()
         led.red_on()
         buzzer.fail_sound()
@@ -278,17 +279,17 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
         # Resume background poller even on failure
         if gps_poller:
             gps_poller.resume()
-        print("System Idle.")
-        print("=========================================\n")
+        log.info("System Idle.")
+        log.info("=========================================\n")
         return
 
-    print()
-    print(f"✓ GPS FIX via {gps_source}!")
-    print(f"  Latitude:  {lat:.6f}")
-    print(f"  Longitude: {lng:.6f}")
+    log.info("")
+    log.info(f"✓ GPS FIX via {gps_source}!")
+    log.info(f"  Latitude:  {lat:.6f}")
+    log.info(f"  Longitude: {lng:.6f}")
     if utc_time:
-        print(f"  UTC Time:  {utc_time}")
-    print("-----------------------------------------")
+        log.info(f"  UTC Time:  {utc_time}")
+    log.info("-----------------------------------------")
 
     # Turn off GNSS to free UART bandwidth for SMS
     modem.disable_gnss()
@@ -298,14 +299,14 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
         gps_poller.pause()
 
     # ── Step 2: Send SMS (retry until success) ───────────────────────
-    print()
-    print("[STEP 2/4] SMS TRANSMISSION")
-    print("-----------------------------------------")
+    log.info("")
+    log.info("[STEP 2/4] SMS TRANSMISSION")
+    log.info("-----------------------------------------")
 
     map_link = modem.build_map_link(lat, lng)
-    print(f"GPS Coords: {map_link}")
-    print()
-    print(f"Sending to {len(config.CONTACTS)} emergency contacts...")
+    log.info(f"GPS Coords: {map_link}")
+    log.info("")
+    log.info(f"Sending to {len(config.CONTACTS)} emergency contacts...")
 
     sms_ok = False
     sms_cycle = 0
@@ -320,11 +321,11 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
         # Wake modem (may have gone idle during GPS)
         led.blink_green_fast(interval=0.3)
         if not modem.wake(max_attempts=config.MODEM_WAKE_ATTEMPTS):
-            print(f"  Modem unresponsive — pausing {config.SMS_CYCLE_PAUSE}s...")
+            log.warning(f"  Modem unresponsive — pausing {config.SMS_CYCLE_PAUSE}s...")
             time.sleep(config.SMS_CYCLE_PAUSE)
             if (config.SMS_MAX_CYCLES > 0
                     and sms_cycle >= config.SMS_MAX_CYCLES):
-                print("  SMS max cycles reached — giving up.")
+                log.error("  SMS max cycles reached — giving up.")
                 break
             continue
 
@@ -344,45 +345,45 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
         if sms_ok:
             break
 
-        print(f"  SMS cycle {cycle_tag} failed — retrying in "
+        log.warning(f"  SMS cycle {cycle_tag} failed — retrying in "
               f"{config.SMS_CYCLE_PAUSE}s...")
         time.sleep(config.SMS_CYCLE_PAUSE)
 
         if (config.SMS_MAX_CYCLES > 0
                 and sms_cycle >= config.SMS_MAX_CYCLES):
-            print("  SMS max cycles reached — giving up.")
+            log.error("  SMS max cycles reached — giving up.")
             break
 
-    print("-----------------------------------------")
+    log.info("-----------------------------------------")
 
-    # ── Step 3: Log event ────────────────────────────────────────────
-    print()
-    print("[STEP 3/4] FILE LOGGING")
-    print("-----------------------------------------")
+    # ── Step 3: Log event ────────────────────────────────────────
+    log.info("")
+    log.info("[STEP 3/4] FILE LOGGING")
+    log.info("-----------------------------------------")
     if sms_ok:
         logger.log_event("SUCCESS", lat, lng, utc_time)
     else:
         logger.log_event("FAILED — SMS Send Error", lat, lng, utc_time)
-    print("-----------------------------------------")
+    log.info("-----------------------------------------")
 
-    # ── Step 4: Feedback ─────────────────────────────────────────────
-    print()
-    print("[STEP 4/4] FINAL STATUS")
-    print("-----------------------------------------")
+    # ── Step 4: Feedback ─────────────────────────────────────────
+    log.info("")
+    log.info("[STEP 4/4] FINAL STATUS")
+    log.info("-----------------------------------------")
 
     led.all_off()
 
     if sms_ok:
-        print("✓ PANIC ALERT SENT SUCCESSFULLY")
-        print("  Emergency contacts have been notified")
-        print("  Location shared via SMS")
+        log.info("✓ PANIC ALERT SENT SUCCESSFULLY")
+        log.info("  Emergency contacts have been notified")
+        log.info("  Location shared via SMS")
         led.green_on()
         buzzer.success_sound()
         time.sleep(0.5)
     else:
-        print("✗ PANIC ALERT FAILED")
-        print("  Unable to send SMS to contacts")
-        print("  Check SIM card and network signal")
+        log.error("✗ PANIC ALERT FAILED")
+        log.error("  Unable to send SMS to contacts")
+        log.error("  Check SIM card and network signal")
         led.red_on()
         buzzer.fail_sound()
         time.sleep(0.5)
@@ -393,7 +394,7 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
     if gps_poller:
         gps_poller.resume()
 
-    print("-----------------------------------------")
-    print("System Idle.")
-    print("=========================================\n")
+    log.info("-----------------------------------------")
+    log.info("System Idle.")
+    log.info("=========================================\n")
     time.sleep(0.5)

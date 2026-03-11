@@ -17,9 +17,12 @@ import config
 from a7670e import A7670E
 from gtu7 import GTU7
 from gps_poller import GPSPoller
+from logger import get_logger
 import buzzer
 import led
 import panic
+
+log = get_logger("PEL.main")
 
 
 def setup():
@@ -42,46 +45,45 @@ def setup():
     # ── Power-on confirmation beep ──────────────────────────────────────
     buzzer.tick()
 
-    print("=================================")
-    print(" Panic Button Emergency Locator")
-    print(" Raspberry Pi + A7670E Edition")
-    print("=================================")
-    print()
+    log.info("=================================")
+    log.info(" Panic Button Emergency Locator")
+    log.info(" Raspberry Pi + A7670E Edition")
+    log.info("=================================")
 
     # ── Component warm-up checks ────────────────────────────────────────
-    print("Warming up — checking components...")
-    print("---------------------------------")
+    log.info("Warming up — checking components...")
+    log.info("---------------------------------")
     all_ok = True
 
     # 1) Green LED
     led.green_on()
     time.sleep(0.3)
     led.green_off()
-    print("  Green LED : OK")
+    log.info("  Green LED : OK")
 
     # 2) Red LED
     led.red_on()
     time.sleep(0.3)
     led.red_off()
-    print("  Red LED   : OK")
+    log.info("  Red LED   : OK")
 
     # 3) Buzzer (short tick)
     buzzer.tick()
-    print("  Buzzer    : OK")
+    log.info("  Buzzer    : OK")
 
     # 4) Button GPIO (verify it's readable — HIGH when not pressed)
     try:
         btn_state = GPIO.input(config.PIN_BUTTON)
         if btn_state == GPIO.HIGH:
-            print("  Button    : OK (idle)")
+            log.info("  Button    : OK (idle)")
         else:
-            print("  Button    : OK (pressed — release it)")
+            log.warning("  Button    : OK (pressed — release it)")
     except Exception:
-        print("  Button    : FAIL")
+        log.error("  Button    : FAIL")
         all_ok = False
 
     # 5) A7670E modem
-    print("  Modem     : detecting...", end="\r")
+    log.info("  Modem     : detecting...")
     port = config.SERIAL_PORT
     modem = None
     modem_ok = False
@@ -109,35 +111,35 @@ def setup():
 
     if modem and modem.is_connected:
         if modem.init_module():
-            print("  Modem     : OK                ")
+            log.info("  Modem     : OK")
             modem_ok = True
         else:
-            print("  Modem     : WARNING — check SIM / signal")
+            log.warning("  Modem     : WARNING — check SIM / signal")
             modem_ok = True  # modem exists but SIM issue
     elif modem:
-        print("  Modem     : FAIL — not responding")
+        log.error("  Modem     : FAIL — not responding")
         all_ok = False
     else:
-        print("  Modem     : FAIL — not detected  ")
+        log.error("  Modem     : FAIL — not detected")
         all_ok = False
 
     # 6) GT-U7 backup GPS
     gtu7_module = None
     if config.GTU7_ENABLED:
-        print("  GPS (GT-U7): detecting...", end="\r")
+        log.info("  GPS (GT-U7): detecting...")
         gtu7_module = GTU7(
             port=config.GTU7_PORT,
             baud=config.GTU7_BAUD,
             timeout=config.GTU7_TIMEOUT,
         )
         if gtu7_module.warmup_check(duration=2.0):
-            print("  GPS (GT-U7): OK              ")
+            log.info("  GPS (GT-U7): OK")
         else:
-            print("  GPS (GT-U7): FAIL \u2014 not detected")
+            log.error("  GPS (GT-U7): FAIL — not detected")
             gtu7_module.disable()
             gtu7_module = None
     else:
-        print("  GPS (GT-U7): disabled in config")
+        log.warning("  GPS (GT-U7): disabled in config")
 
     # 7) Start background GPS poller (24/7 live tracking)
     gps_poller = None
@@ -148,41 +150,39 @@ def setup():
             poll_interval=config.GPS_BG_POLL_INTERVAL,
         )
         gps_poller.start()
-        print("  GPS Poller: LIVE (background)")
+        log.info("  GPS Poller: LIVE (background)")
     else:
-        print("  GPS Poller: disabled")
+        log.warning("  GPS Poller: disabled")
 
     # Ensure buzzer is definitely off after warm-up
     buzzer.buzzer_off()
 
     # ── Status summary ──────────────────────────────────────────────────
-    print("---------------------------------")
-    print(f"Owner:    {config.OWNER_NAME}")
-    print(f"Contacts: {len(config.CONTACTS)}")
+    log.info("---------------------------------")
+    log.info(f"Owner:    {config.OWNER_NAME}")
+    log.info(f"Contacts: {len(config.CONTACTS)}")
     for c in config.CONTACTS:
-        print(f"  • {c['name']} ({c['number']})")
-    print(f"Log file: {config.LOG_FILE}")
-    print("---------------------------------")
+        log.info(f"  • {c['name']} ({c['number']})")
+    log.info(f"Log file: {config.LOG_FILE}")
+    log.info("---------------------------------")
 
     if all_ok:
-        print("All components OK — System Ready.")
-        print("Hold button 3s to arm.")
+        log.info("All components OK — System Ready.")
+        log.info("Hold button 3s to arm.")
         led.solid_green()
         buzzer.double_beep()
     elif modem_ok:
-        print("System Ready (modem has warnings).")
-        print("Hold button 3s to arm.")
+        log.warning("System Ready (modem has warnings).")
+        log.info("Hold button 3s to arm.")
         led.solid_green()
         buzzer.double_beep()
     else:
-        print("WARNING: Modem not available!")
-        print("SMS/GPS will not work until modem is connected.")
-        print("System running in limited mode — hold button 3s to arm.")
+        log.error("WARNING: Modem not available!")
+        log.error("SMS/GPS will not work until modem is connected.")
+        log.warning("System running in limited mode — hold button 3s to arm.")
         led.blink_red(interval=1.0)
         buzzer.fail_sound()
         buzzer.buzzer_off()   # guarantee buzzer is silent after fail tone
-
-    print()
     return modem, gtu7_module, gps_poller
 
 
@@ -209,7 +209,7 @@ def loop(modem, gtu7_module=None, gps_poller=None):
                 and (time.time() - last_keepalive) >= config.KEEPALIVE_INTERVAL):
             resp = modem.send_command("AT", timeout=2.0)
             if "OK" not in resp:
-                print("[KEEPALIVE] Module unresponsive — waking...")
+                log.warning("[KEEPALIVE] Module unresponsive — waking...")
                 modem.wake(max_attempts=config.MODEM_WAKE_ATTEMPTS)
             last_keepalive = time.time()
 
@@ -226,15 +226,15 @@ def main():
         loop(modem, gtu7_module, gps_poller)
 
     except KeyboardInterrupt:
-        print("\nShutdown requested (Ctrl+C)")
+        log.warning("Shutdown requested (Ctrl+C)")
 
     except Exception as e:
-        print(f"\nFATAL ERROR: {e}")
+        log.critical(f"FATAL ERROR: {e}")
         import traceback
         traceback.print_exc()
 
     finally:
-        print("Cleaning up...")
+        log.info("Cleaning up...")
         if gps_poller:
             gps_poller.stop()
         led.all_off()
@@ -245,7 +245,7 @@ def main():
             modem.disable_gnss()
             modem.close()
         GPIO.cleanup()
-        print("Goodbye.")
+        log.info("Goodbye.")
         sys.exit(0)
 
 
