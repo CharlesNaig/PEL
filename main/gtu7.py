@@ -16,6 +16,10 @@ Dependencies: pyserial
 import serial
 import time
 
+from logger import get_logger
+
+log = get_logger("PEL.gtu7")
+
 
 class GTU7:
     """
@@ -60,10 +64,10 @@ class GTU7:
                 xonxoff=False, rtscts=False, dsrdtr=False,
             )
             self._enabled = True
-            print(f"[GT-U7] Opened {self.port} at {self.baud} baud")
+            log.info(f"[GT-U7] Opened {self.port} at {self.baud} baud")
             return True
         except serial.SerialException as e:
-            print(f"[GT-U7] Serial error: {e}")
+            log.error(f"[GT-U7] Serial error: {e}")
             self._enabled = False
             return False
 
@@ -72,7 +76,7 @@ class GTU7:
         if self.ser and self.ser.is_open:
             self.ser.close()
         self._enabled = False
-        print("[GT-U7] Serial port closed")
+        log.info("[GT-U7] Serial port closed")
 
     def close(self):
         """Alias for disable() — matches A7670E interface."""
@@ -135,7 +139,7 @@ class GTU7:
                 buffer += chunk
                 time.sleep(0.05)
         except serial.SerialException as e:
-            print(f"[GT-U7] Read error: {e}")
+            log.error(f"[GT-U7] Read error: {e}")
             return (None, None, None)
 
         if not buffer:
@@ -281,7 +285,7 @@ def _parse_gprmc(sentence):
         return (lat, lng, utc_time)
 
     except (IndexError, ValueError) as e:
-        print(f"  [GT-U7] GPRMC parse error: {e}")
+        log.error(f"  [GT-U7] GPRMC parse error: {e}")
         return (None, None, None)
 
 
@@ -332,5 +336,5 @@ def _parse_gpgga(sentence):
         return (lat, lng, utc_time)
 
     except (IndexError, ValueError) as e:
-        print(f"  [GT-U7] GPGGA parse error: {e}")
+        log.error(f"  [GT-U7] GPGGA parse error: {e}")
         return (None, None, None)

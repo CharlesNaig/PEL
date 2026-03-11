@@ -13,6 +13,10 @@ The poller thread is daemon — it exits automatically when main.py shuts down.
 import threading
 import time
 
+from logger import get_logger
+
+log = get_logger("PEL.gps_poller")
+
 
 class GPSPoller:
     """
@@ -87,7 +91,7 @@ class GPSPoller:
         self._running = True
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
-        print("[GPS-BG] Background GPS poller started")
+        log.info("[GPS-BG] Background GPS poller started")
 
     def stop(self):
         """Stop the background polling thread."""
@@ -102,17 +106,17 @@ class GPSPoller:
                 self._gnss_enabled = False
             except Exception:
                 pass
-        print("[GPS-BG] Background GPS poller stopped")
+        log.info("[GPS-BG] Background GPS poller stopped")
 
     def pause(self):
         """Pause polling (e.g. when modem is busy sending SMS)."""
         self._paused = True
-        print("[GPS-BG] Polling paused (modem busy)")
+        log.warning("[GPS-BG] Polling paused (modem busy)")
 
     def resume(self):
         """Resume polling after pause."""
         self._paused = False
-        print("[GPS-BG] Polling resumed")
+        log.info("[GPS-BG] Polling resumed")
 
     def _poll_loop(self):
         """Main polling loop — runs in background thread."""
@@ -122,7 +126,7 @@ class GPSPoller:
                 self._modem.enable_gnss()
                 self._gnss_enabled = True
         except Exception as e:
-            print(f"[GPS-BG] GNSS enable error: {e}")
+            log.error(f"[GPS-BG] GNSS enable error: {e}")
 
         while self._running:
             if self._paused:
@@ -132,7 +136,7 @@ class GPSPoller:
             try:
                 self._poll_once()
             except Exception as e:
-                print(f"[GPS-BG] Poll error: {e}")
+                log.error(f"[GPS-BG] Poll error: {e}")
 
             # Sleep in small increments so stop() is responsive
             for _ in range(int(self._poll_interval * 10)):
@@ -173,9 +177,9 @@ class GPSPoller:
             self._fix_count += 1
 
             if self._fix_count == 1:
-                print(f"[GPS-BG] First fix via {source}: "
+                log.info(f"[GPS-BG] First fix via {source}: "
                       f"{lat:.6f}, {lng:.6f}")
             elif self._fix_count % 12 == 0:
                 # Log every ~60s (12 polls at 5s interval) so we know it's alive
-                print(f"[GPS-BG] Fix #{self._fix_count} via {source}: "
+                log.info(f"[GPS-BG] Fix #{self._fix_count} via {source}: "
                       f"{lat:.6f}, {lng:.6f}")

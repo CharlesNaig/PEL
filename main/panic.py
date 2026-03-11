@@ -236,7 +236,7 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
                         gps_source = "GT-U7"
                         break
 
-                print("  No fix yet...")
+                log.warning("  No fix yet...")
 
                 # Wait before next poll, but check timeout
                 wait_end = time.time() + config.GPS_POLL_INTERVAL
@@ -316,7 +316,7 @@ def execute_panic(modem, gtu7_module=None, gps_poller=None):
         cycle_tag = (f"#{sms_cycle}"
                      + (f"/{config.SMS_MAX_CYCLES}"
                         if config.SMS_MAX_CYCLES > 0 else ""))
-        print(f"\n  --- SMS cycle {cycle_tag} ---")
+        log.info(f"\n  --- SMS cycle {cycle_tag} ---")
 
         # Wake modem (may have gone idle during GPS)
         led.blink_green_fast(interval=0.3)
