@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/pel-logo.png" alt="PEL red emergency-location logo" width="180">
+  <img src="https://cdn.naig.me/f883a477c374d2ed26342b61b35d85cdc89f2a9378275d4157052687de12762f.png" alt="PEL red emergency-location logo" width="180">
 </p>
 
 <h1 align="center">Panic Button Emergency Locator</h1>
