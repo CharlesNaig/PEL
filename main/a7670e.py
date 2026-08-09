@@ -701,7 +701,7 @@ class A7670E:
         Send an SMS to a single phone number.
 
         Args:
-            number: Phone number with country code (e.g. '+639154693904')
+            number: Phone number with country code (e.g. '+15550100001')
             message: Full SMS body text
             retries: Number of retry attempts on failure
 

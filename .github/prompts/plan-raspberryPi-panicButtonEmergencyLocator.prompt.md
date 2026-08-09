@@ -158,8 +158,8 @@ OWNER_NAME = "Charles"
 
 # --- Emergency Contacts ---
 CONTACTS = [
-    {"name": "Andrew Felipe", "number": "+639154693904"},
-    {"name": "Naig",          "number": "+639391445673"},
+    {"name": "Primary Contact", "number": "+15550100001"},
+    {"name": "Secondary Contact", "number": "+15550100002"},
 ]
 
 # --- GPIO Pins (BCM numbering) ---
@@ -803,8 +803,8 @@ OWNER_NAME = "Charles"
 
 # --- Emergency Contacts ---
 CONTACTS = [
-    {"name": "Andrew Felipe", "number": "+639154693904"},
-    {"name": "Naig",          "number": "+639391445673"},
+    {"name": "Primary Contact", "number": "+15550100001"},
+    {"name": "Secondary Contact", "number": "+15550100002"},
 ]
 
 # --- GPIO Pins (BCM numbering) ---

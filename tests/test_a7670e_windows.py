@@ -257,7 +257,7 @@ def send_sms(ser):
     print()
     print(coloured("── Send SMS ──", BOLD))
     print("  Enter the phone number with country code.")
-    print("  Example: +639171234567")
+    print("  Example: +15550100001")
     print()
 
     try:
@@ -272,7 +272,7 @@ def send_sms(ser):
 
     # Basic validation
     if not number.startswith("+") and not number.isdigit():
-        print(coloured("  ✗ Invalid number. Use format: +639171234567", RED))
+        print(coloured("  ✗ Invalid number. Use format: +15550100001", RED))
         return
 
     try:

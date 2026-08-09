@@ -1,6 +1,32 @@
-# Panic Button Emergency Locator (PEL)
+<p align="center">
+  <img src="assets/pel-logo.png" alt="PEL red emergency-location logo" width="180">
+</p>
 
-A Raspberry Pi–based panic button system that sends emergency SMS alerts with real-time GPS location to predefined contacts.
+<h1 align="center">Panic Button Emergency Locator</h1>
+
+<p align="center">
+  A Raspberry Pi emergency device that turns one deliberate button press into a
+  location-aware SMS alert for trusted contacts.
+</p>
+
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white">
+  <img alt="Raspberry Pi" src="https://img.shields.io/badge/Raspberry%20Pi-ready-C51A4A?logo=raspberrypi&logoColor=white">
+  <img alt="Status" src="https://img.shields.io/badge/status-capstone%20prototype-C1121F">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-black">
+</p>
+
+## About the project
+
+PEL is a capstone prototype for situations where a phone may be unavailable or too
+slow to operate. It combines a physical hold-to-arm control, LTE messaging, GNSS
+location, clear LED/buzzer feedback, and a cancel window in a small offline-first
+device. The design favors deliberate activation and local operation over cloud
+dependencies.
+
+> [!CAUTION]
+> PEL is an educational prototype, not a certified life-safety device. Test the full
+> alert path regularly and never use it as the only way to contact emergency services.
 
 When the button is pressed and held, the device acquires a GPS fix via the **SIMCOM A7670E** LTE module's built-in GNSS, builds a Google Maps link, and sends personalized SMS messages to all configured emergency contacts.
 
@@ -138,37 +164,23 @@ This installs:
 - `pyserial` — UART communication with A7670E
 - `RPi.GPIO` — GPIO control for LEDs, relay, and button
 
-### 3. Configure
+### 3. Configure private contacts
 
-Edit [main/config.py](main/config.py) before first run:
+Contact details are intentionally excluded from Git. Create a local deployment file:
 
-```python
-# Your name
-OWNER_NAME = "Charles"
-
-# Emergency contacts (add/remove as needed)
-CONTACTS = [
-    {"name": "Andrew Felipe", "number": "+639154693904"},
-    {"name": "Naig",          "number": "+639391445673"},
-]
-
-# Customize the SMS message
-SMS_TEMPLATE = (
-    "EMERGENCY ALERT!\n"
-    "\n"
-    "Hey {contact_name}, I'm letting you know that the emergency "
-    "panic button has been pressed by {owner_name}.\n"
-    "\n"
-    "I've got his/her location from the GPS device. "
-    "Here is the Google Maps link:\n"
-    "\n"
-    "{map_link}\n"
-    "\n"
-    "Please respond immediately and check on his/her safety."
-)
+```bash
+cp config/contacts.example.json config/contacts.json
 ```
 
-Available SMS placeholders: `{contact_name}`, `{owner_name}`, `{map_link}`
+Edit `config/contacts.json` with trusted contacts in E.164 format, then set the owner
+label without changing tracked source:
+
+```bash
+export PEL_OWNER_NAME="My PEL Device"
+```
+
+For systemd or a secrets-mounted deployment, set `PEL_CONTACTS_FILE` to an absolute
+JSON path. Never commit real contact details, SIM information, or alert logs.
 
 ### 4. Verify GPIO Pins
 
@@ -218,8 +230,8 @@ All settings are in [main/config.py](main/config.py):
 
 | Setting | Default | Description |
 |---|---|---|
-| `OWNER_NAME` | `"Charles"` | Name included in SMS messages |
-| `CONTACTS` | 2 contacts | List of `{name, number}` dicts with country code |
+| `PEL_OWNER_NAME` | `"PEL Device"` | Environment variable used in SMS messages |
+| `PEL_CONTACTS_FILE` | `config/contacts.json` | Path to the untracked private contact list |
 | `SMS_TEMPLATE` | Emergency alert | Message template with placeholders |
 | `PIN_GREEN_LED` | `17` | BCM pin for green LED |
 | `PIN_RED_LED` | `27` | BCM pin for red LED |
@@ -240,9 +252,12 @@ All settings are in [main/config.py](main/config.py):
 
 ```
 PEL/
+├── assets/               # Portfolio branding
+├── config/
+│   └── contacts.example.json  # Safe deployment template
 ├── main/
 │   ├── main.py          # Application entry point (setup, loop, shutdown)
-│   ├── config.py         # All user-configurable settings
+│   ├── config.py         # Hardware settings and private contact loader
 │   ├── a7670e.py         # A7670E LTE driver (AT commands, GNSS, SMS)
 │   ├── buzzer.py         # Relay/buzzer control (patterns, Active LOW)
 │   ├── led.py            # LED control (solid, blink, threaded patterns)
@@ -373,6 +388,8 @@ ExecStart=/usr/bin/python3 /home/pi/PEL/main/main.py
 WorkingDirectory=/home/pi/PEL
 Restart=on-failure
 RestartSec=5
+Environment=PEL_OWNER_NAME=My PEL Device
+Environment=PEL_CONTACTS_FILE=/etc/pel/contacts.json
 
 [Install]
 WantedBy=multi-user.target
@@ -395,4 +412,9 @@ sudo systemctl status pel.service
 
 ## License
 
-This project is for personal/educational use.
+Released under the [MIT License](LICENSE).
+
+## About the author
+
+Created by [Charles Naig](https://github.com/CharlesNaig) as an embedded-systems
+capstone exploring accessible, offline-first emergency communication.

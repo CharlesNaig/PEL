@@ -1,30 +1,52 @@
 """
 Panic Button Emergency Locator - Configuration
 ================================================
-All user-configurable constants in one place.
-Edit this file before deployment to match your hardware and contacts.
+Hardware constants live here. Private owner and contact details are loaded from an
+untracked JSON deployment file.
 
 Port of: USER CONFIGURATION, PIN CONFIGURATION, TIMING CONSTANTS
          sections in main.ino (lines 14-78)
 """
 
+import json
+import os
+from pathlib import Path
+
 # ==============================================================
 # OWNER INFORMATION
 # ==============================================================
 
-OWNER_NAME = "ICTB Group 3"
+OWNER_NAME = os.getenv("PEL_OWNER_NAME", "PEL Device")
 
 # ==============================================================
 # EMERGENCY CONTACTS
-# Add/remove contacts as needed. Each entry needs a name and number.
-# Numbers must include country code (e.g. +63 for Philippines).
+# Copy config/contacts.example.json to config/contacts.json and edit it locally.
+# Override the location with PEL_CONTACTS_FILE when deploying through systemd.
 # ==============================================================
 
-CONTACTS = [
-    {"name": "Andrew Felipe", "number": "+639154693904"},
-    {"name": "Naig",          "number": "+639391445673"},
-    {"name": "LEE",          "number": "+639456903900"},
-]
+_DEFAULT_CONTACTS_FILE = Path(__file__).resolve().parents[1] / "config" / "contacts.json"
+PEL_CONTACTS_FILE = Path(os.getenv("PEL_CONTACTS_FILE", _DEFAULT_CONTACTS_FILE))
+
+
+def _load_contacts(path):
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError("PEL contacts file must contain a JSON array")
+    contacts = []
+    for index, contact in enumerate(data, start=1):
+        if not isinstance(contact, dict):
+            raise ValueError(f"PEL contact {index} must be an object")
+        name = str(contact.get("name", "")).strip()
+        number = str(contact.get("number", "")).strip()
+        if not name or not number.startswith("+") or not number[1:].isdigit():
+            raise ValueError(f"PEL contact {index} must have a name and E.164 number")
+        contacts.append({"name": name, "number": number})
+    return contacts
+
+
+CONTACTS = _load_contacts(PEL_CONTACTS_FILE)
 
 # ==============================================================
 # SMS MESSAGE TEMPLATE
@@ -38,8 +60,8 @@ SMS_TEMPLATE = (
     "(Paste into Google Maps)"
 )
 # Filled example (147 chars):
-# EMERGENCY! Charles pressed the panic button.
-# Andrew Felipe, please check on them immediately.
+# EMERGENCY! PEL Device pressed the panic button.
+# Primary Contact, please check on them immediately.
 # GPS: 14.599512, 120.984222
 # (Paste into Google Maps)
 
