@@ -162,7 +162,7 @@ def setup():
     log.info(f"Owner:    {config.OWNER_NAME}")
     log.info(f"Contacts: {len(config.CONTACTS)}")
     for c in config.CONTACTS:
-        log.info(f"  • {c['name']} ({c['number']})")
+        log.info(f"  • {c['name']} (number configured)")
     log.info(f"Log file: {config.LOG_FILE}")
     log.info("---------------------------------")
 
@@ -218,6 +218,13 @@ def loop(modem, gtu7_module=None, gps_poller=None):
 
 def main():
     """Application entry point with clean shutdown."""
+    if not config.CONTACTS:
+        log.critical(
+            "No emergency contacts configured. Create config/contacts.json or set "
+            "PEL_CONTACTS_FILE before starting PEL."
+        )
+        raise SystemExit(2)
+
     modem = None
     gtu7_module = None
     gps_poller = None
